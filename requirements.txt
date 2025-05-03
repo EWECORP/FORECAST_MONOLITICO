@@ -1,0 +1,11 @@
+prefect
+OpenAI
+sqlalchemy
+psycopg2
+psycopg2-binary
+plotly
+ace_tools_open
+statsmodels
+pandas
+ttkbootstrap
+matplotlib
