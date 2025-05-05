@@ -1,4 +1,5 @@
 # Solo importa lo necesario desde el módulo de funciones
+# Actualizado para correr con el Nuevo ENVIRONMENT
 from funciones_forecast import (
     Open_Connexa_Alquemy,   
     get_execution_execute_by_status,
@@ -19,11 +20,11 @@ from dotenv import dotenv_values
 # === CARGAR CREDENCIALES DESDE .env ===
 secrets = dotenv_values(".env")
 DB_CONFIG = {
-    'host': secrets['SERVIDOR4'],
-    'port': secrets['PUERTO4'],
-    'dbname': secrets['BASE4'],
-    'user': secrets['USUARIO4'],
-    'password': secrets['CONTRASENA4']
+    'host': secrets['PGP_HOST'],
+    'port': secrets['PGP_PORT'],
+    'dbname': secrets['PGP_DB'],
+    'user': secrets['PGP_USER'],
+    'password': secrets['PGP_PASSWORD'],
 }
 
 # === FUNCIONES DE BASE DE DATOS ===
