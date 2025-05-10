@@ -19,6 +19,9 @@ from funciones_forecast import (
     get_execution_execute_by_status,
     update_execution_execute,
     generar_grafico_base64,
+    Open_Diarco_Data,
+    Open_Postgres_retry,
+    Close_Connection,
     generar_grafico_json
 )
 
@@ -46,10 +49,48 @@ def insertar_graficos_forecast(algoritmo, name, id_proveedor):
     df_ventas['Sucursal'] = df_ventas['Sucursal'].astype(int)
     df_ventas['Fecha'] = pd.to_datetime(df_ventas['Fecha'])
 
+    # 🔄 Agrupar por Fecha, Código de Artículo y Sucursal, para consolidar múltiples precios
+    df_ventas = (
+        df_ventas
+        .groupby(['Fecha', 'Codigo_Articulo', 'Sucursal'], as_index=False)
+        .agg({'Unidades': 'sum'})
+    )
+    # Buscar filas duplicadas por clave compuesta
+    duplicados = df_ventas[df_ventas.duplicated(subset=["Fecha", "Codigo_Articulo", "Sucursal"], keep=False)]
+    if duplicados.empty:
+        print("✅ No se encontraron filas duplicadas en el historial de ventas.")
+    else:
+        print(f"⚠️ Se encontraron {len(duplicados)} filas duplicadas en el historial de ventas - insertar_graficos_forecast dataframe df_ventas.")
+        # Mostrar las filas duplicadas
+        # Ordenar para facilitar lectura
+        duplicados = duplicados.sort_values(["Codigo_Articulo", "Sucursal", "Fecha"])
+        print(duplicados)
+    
     # Cargar forecast extendido
     df_forecast = pd.read_csv(path_forecast)
     df_forecast.fillna(0, inplace=True)
     print(f"-> Datos Recuperados del CACHE: {id_proveedor}, Label: {name}")
+    
+    # Cargar STOCK por Proveedor
+    """Consulta el stock y devuelve un dict {fecha: cantidad}, limitado a fechas válidas hasta ayer."""
+    conn = Open_Diarco_Data()
+    query_stock = f"""
+    SELECT DISTINCT s.*
+    FROM src.t710_estadis_stock s
+    LEFT JOIN src.t050_articulos a
+    ON s.c_articulo = a.c_articulo
+    WHERE s.c_anio * 100 + s.c_mes >= TO_CHAR(CURRENT_DATE - INTERVAL '1 month', 'YYYYMM')::INTEGER
+    AND a.c_proveedor_primario = {id_proveedor};
+    """
+    df_stock = pd.read_sql(query_stock, conn)
+    Close_Connection(conn)
+    if df_stock.empty:
+        print(f"⚠️ No se encontraron datos de stock para el proveedor {id_proveedor} en el mes actual.")
+        return {}
+    df_stock['c_anio'] = df_stock['c_anio'].astype(int)
+    df_stock['c_mes'] = df_stock['c_mes'].astype(int)
+    df_stock['c_articulo'] = df_stock['c_articulo'].astype(int)
+    df_stock['c_sucu_empr'] = df_stock['c_sucu_empr'].astype(int)
 
     # Verificar si ya existe archivo con avances
     if os.path.exists(path_backup):
@@ -71,6 +112,7 @@ def insertar_graficos_forecast(algoritmo, name, id_proveedor):
         try:
             grafico = generar_grafico_json(
                 df_ventas,
+                df_stock,
                 row['Codigo_Articulo'],
                 row['Sucursal'],
                 row['Forecast'],

@@ -25,6 +25,8 @@ from dotenv import dotenv_values
 secrets = dotenv_values(".env")
 folder = secrets["FOLDER_DATOS"]
 
+print(f"-> Datos Recuperados del CACHE: {secrets['FOLDER_DATOS']}")
+
 # También podés importar funciones adicionales si tu módulo las necesita
 def extender_datos_forecast(algoritmo, name, id_proveedor):
     # Recuperar Historial de Ventas

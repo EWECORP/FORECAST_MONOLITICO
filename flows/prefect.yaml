@@ -1,0 +1,17 @@
+name: ejemplo_prefect
+prefect-version: 3.4.0
+
+build: null
+push: null
+
+pull:
+  - prefect.deployments.steps.set_working_directory:
+      directory: .
+
+deployments:
+  - name: saludo-inicial
+    flow_name: flujo_de_prueba
+    entrypoint: flow.py:flujo_prueba
+    work_pool:
+      name: default-agent-pool
+      work_queue_name: default

@@ -1,6 +1,11 @@
-
+# MODIFICADO: 2025-05-10
+# ACAPTADO a Nuevas Tablas y Estructura de Datos en POSTGRES
+# Se hace con Ejecución Remota 
+# Depende de procesos de estración Previo
+# Se mantiene por Compatibilidad con el resto de la aplicación las funciones _OLD
 """
 funciones_forecast.py
+Versión 1.2
 
 Este módulo contiene todas las funciones necesarias para:
 - conexión a bases de datos
@@ -86,12 +91,15 @@ def Open_Diarco_Data():
     secrets = dotenv_values(".env")   # Cargar credenciales desde .env    
     conn_str = f"dbname={secrets['PG_DB']} user={secrets['PG_USER']} password={secrets['PG_PASSWORD']} host={secrets['PG_HOST']} port={secrets['PG_PORT']}"
     #print (conn_str)
-    try:    
-        conn = pg2.connect(conn_str)
-        return conn
-    except Exception as e:
-        print(f'Error en la conexión: {e}')
-        return None
+    for i in range(5):
+        try:    
+            conn = pg2.connect(conn_str)
+            return conn
+        except Exception as e:
+            print(f'Error en la conexión: {e}')
+            time.sleep(5)
+    return None  # Retorna None si todos los intentos fallan
+
 
 def Open_Conn_Postgres():
     secrets = dotenv_values(".env")   # Cargar credenciales desde .env    
@@ -146,7 +154,111 @@ def Close_Connection(conn):
 def id_aleatorio():       # Helper para generar identificadores únicos
     return str(uuid.uuid4())
 
+# Nueva Rutina al MIGRAR a PostgreSQL y Ejecución REMOTA
 def generar_datos(id_proveedor, etiqueta, ventana):
+    from dotenv import dotenv_values
+    import pandas as pd
+    import os
+    from funciones_forecast import Open_Diarco_Data, Close_Connection
+
+    secrets = dotenv_values(".env")
+    folder = secrets["FOLDER_DATOS"]
+
+    try:
+        data = pd.read_csv(f'{folder}/{etiqueta}.csv')
+        data['Codigo_Articulo'] = data['Codigo_Articulo'].astype(int)
+        data['Sucursal'] = data['Sucursal'].astype(int)
+        data['Fecha'] = pd.to_datetime(data['Fecha'])
+
+        articulos = pd.read_csv(f'{folder}/{etiqueta}_articulos.csv')
+        print(f"-> Datos Recuperados del CACHE: {id_proveedor}, Label: {etiqueta}")
+        return data, articulos
+
+    except FileNotFoundError:
+        print(f"-> Generando datos para ID: {id_proveedor}, Label: {etiqueta}")
+        conn = Open_Diarco_Data()
+
+        # --- ARTÍCULOS ---
+        query_articulos = f"""
+            SELECT *
+            FROM src.base_forecast_articulos
+            WHERE c_proveedor_primario = {id_proveedor}
+            ORDER BY c_articulo, c_sucu_empr;
+        """
+        articulos = pd.read_sql(query_articulos, conn)
+        if articulos.empty:
+            print(f"❗ No se encontraron artículos para el proveedor {id_proveedor}.")
+            Close_Connection(conn)
+            return None, None
+
+        articulos.columns = articulos.columns.str.upper()
+        articulos['C_PROVEEDOR_PRIMARIO'] = articulos['C_PROVEEDOR_PRIMARIO'].astype(int)
+        articulos['C_ARTICULO'] = articulos['C_ARTICULO'].astype(int)
+        articulos['C_FAMILIA'] = articulos['C_FAMILIA'].astype(int)
+        articulos['C_RUBRO'] = articulos['C_RUBRO'].astype(int)
+        articulos['Q_DIAS_STOCK'] = articulos['Q_DIAS_STOCK'].fillna(ventana).astype(int)
+        articulos['Q_DIAS_SOBRE_STOCK'] = articulos['Q_DIAS_SOBRE_STOCK'].fillna(0).astype(int)
+        articulos.to_csv(f'{folder}/{etiqueta}_articulos.csv', index=False, encoding='utf-8')
+        print(f"---> Datos de Artículos guardados")
+
+        # --- VENTAS ---
+        query_ventas = f"""
+            SELECT fecha, codigo_articulo, sucursal, precio, costo, unidades, familia, rubro, subrubro,
+                c_proveedor_primario, nombre_articulo, clasificacion, fecha_procesado, marca_procesado
+            FROM src.base_forecast_ventas
+            WHERE c_proveedor_primario = {id_proveedor}
+            ORDER BY fecha;
+        """
+        demanda = pd.read_sql(query_ventas, conn)
+        if demanda.empty:
+            print(f"⚠️ No se encontraron ventas para el proveedor {id_proveedor}.")
+            Close_Connection(conn)
+            return None, articulos
+
+        demanda = demanda.rename(columns={
+            "codigo_articulo": "Codigo_Articulo",
+            "sucursal": "Sucursal",
+            "fecha": "Fecha",
+            "precio": "Precio",
+            "costo": "Costo",
+            "unidades": "Unidades",
+            "familia": "Familia",
+            "rubro": "Rubro",
+            "subrubro": "SubRubro"
+        })
+
+        # --- MERGE ---
+        data = pd.merge(
+            articulos,
+            demanda,
+            left_on=['C_ARTICULO', 'C_SUCU_EMPR'],
+            right_on=['Codigo_Articulo', 'Sucursal'],
+            how='inner'
+        )
+
+        if data.empty:
+            print(f"⚠️ No hay coincidencias entre artículos y ventas para el proveedor {id_proveedor}.")
+            Close_Connection(conn)
+            return None, articulos
+
+        # Guardado
+        data['C_ARTICULO'] = data['C_ARTICULO'].astype(int)
+        data['C_SUCU_EMPR'] = data['C_SUCU_EMPR'].astype(int)
+        data['Codigo_Articulo'] = data['Codigo_Articulo'].astype(int)
+        data['Sucursal'] = data['Sucursal'].astype(int)
+        data.to_csv(f'{folder}/{etiqueta}.csv', index=False, encoding='utf-8')
+        print(f"---> Datos de RECUPERACIÓN guardados")
+
+        # Compactar solo VENTAS
+        ventas = data[['Fecha', 'Codigo_Articulo', 'Sucursal', 'Unidades']]
+        ventas.to_csv(f'{folder}/{etiqueta}_Ventas.csv', index=False, encoding='utf-8')
+        print(f"---> Datos de Ventas guardados")
+
+        Close_Connection(conn)
+        return data, articulos
+
+# Rutina anterior para compatibilidad EJECUCIÓN LOCAL
+def generar_datos_OLD(id_proveedor, etiqueta, ventana):
     secrets = dotenv_values(".env")   # Connection String from .env
     folder = secrets["FOLDER_DATOS"]
     
@@ -332,6 +444,61 @@ def obtener_datos_stock(id_proveedor, etiqueta):
     #  Intento recuperar datos cacheados
     try:         
         print(f"-> Generando datos para ID: {id_proveedor}, Label: {etiqueta}")
+        # Configuración de conexión (AHORA EN FORMA LOCAL)
+        conn = Open_Diarco_Data()
+        
+        # ----------------------------------------------------------------
+        # FILTRA solo PRODUCTOS HABILITADOS y Traer datos de STOCK y PENDIENTES desde PRODUCCIÓN
+        # ----------------------------------------------------------------
+        query = f"""              
+            SELECT codigo_proveedor, codigo_articulo, codigo_sucursal, precio_venta, precio_costo, factor_venta, stock_unidades, 
+            venta_unidades_30_dias, stock_valorizado, venta_valorizada, dias_stock, f_ultima_vta, venta_unidades_1q, venta_unidades_2q
+            
+            FROM src.base_forecast_stock
+            WHERE codigo_proveedor = {id_proveedor}
+            ORDER BY codigo_articulo, codigo_sucursal;
+        """
+        # Ejecutar la consulta SQL
+        df_stock = pd.read_sql(query, conn)
+        # Renombrar columnas para estandarizar
+        df_stock = df_stock.rename(columns={
+            "codigo_proveedor": "Codigo_Proveedor",
+            "codigo_articulo": "Codigo_Articulo",
+            "codigo_sucursal": "Codigo_Sucursal",
+            "precio_venta": "Precio_Venta",
+            "precio_costo": "Precio_Costo",
+            "factor_venta": "Factor_Venta",
+            "stock_unidades": "Stock_Unidades",
+            "venta_unidades_30_dias": "Venta_Unidades_30_Dias",
+            "stock_valorizado": "Stock_Valorizado",
+            "venta_valorizada": "Venta_Valorizada",
+            "dias_stock": "Dias_Stock",
+            "f_ultima_vta": "F_ULTIMA_VTA",
+            "venta_unidades_1q": "VENTA_UNIDADES_1Q",
+            "venta_unidades_2q": "VENTA_UNIDADES_2Q"            
+        })
+        
+        file_path = f'{folder}/{etiqueta}_Stock.csv'
+        df_stock['Codigo_Proveedor']= df_stock['Codigo_Proveedor'].astype(int)
+        df_stock['Codigo_Articulo']= df_stock['Codigo_Articulo'].astype(int)
+        df_stock['Codigo_Sucursal']= df_stock['Codigo_Sucursal'].astype(int)
+        df_stock.fillna(0, inplace= True)
+        # df_stock.to_csv(file_path, index=False, encoding='utf-8')        
+        print(f"---> Datos de STOCK guardados: {file_path}")
+        return df_stock
+    except Exception as e:
+        print(f"Error en get_execution: {e}")
+        return None
+    finally:
+        Close_Connection(conn)
+        
+def obtener_datos_stock_OLD (id_proveedor, etiqueta):
+    secrets = dotenv_values(".env")   # Connection String from .env
+    folder = secrets["FOLDER_DATOS"]
+    
+    #  Intento recuperar datos cacheados
+    try:         
+        print(f"-> Generando datos para ID: {id_proveedor}, Label: {etiqueta}")
         # Configuración de conexión
         conn = Open_Connection()
         
@@ -420,6 +587,59 @@ def obtener_demora_oc(id_proveedor, etiqueta):
         # ----------------------------------------------------------------
         # FILTRA solo PRODUCTOS HABILITADOS y Traer datos de STOCK y PENDIENTES desde PRODUCCIÓN
         # ----------------------------------------------------------------
+        query = f""" 
+        SELECT c_oc, u_prefijo_oc, u_sufijo_oc, u_dias_limite_entrega, fecha_limite, demora, codigo_proveedor, 
+        codigo_sucursal, c_sucu_destino, c_sucu_destino_alt, c_situac, f_situac, f_alta_sist, f_emision, f_entrega, c_usuario_operador
+        FROM src.base_forecast_oc_demoradas;
+        WHERE codigo_proveedor = {id_proveedor};
+        """
+        # Ejecutar la consulta SQL
+        df_demoras = pd.read_sql(query, conn)
+        # Renombrar columnas para estandarizar
+        df_demoras = df_demoras.rename(columns={
+            "c_oc": "C_OC",
+            "u_prefijo_oc": "U_PREFIJO_OC",
+            "u_sufijo_oc": "U_SUFIJO_OC",
+            "u_dias_limite_entrega": "U_DIAS_LIMITE_ENTREGA",
+            "fecha_limite": "FECHA_LIMITE",
+            "demora": "Demora",
+            "codigo_proveedor": "Codigo_Proveedor",
+            "codigo_sucursal": "Codigo_Sucursal",
+            "c_sucu_destino": "C_SUC_DESTINO",
+            "c_sucu_destino_alt": "C_SUC_DESTINO_ALT",
+            "c_situac": "C_SITUAC",
+            "f_situac": "F_SITUAC",
+            "f_alta_sist": "F_ALTA_SIST",
+            "f_emision": "F_EMISION",
+            "f_entrega": "F_ENTREGA",
+            "c_usuario_operador": "C_USUARIO_OPERADOR"
+        })
+        
+        df_demoras['Codigo_Proveedor']= df_demoras['Codigo_Proveedor'].astype(int)
+        df_demoras['Codigo_Sucursal']= df_demoras['Codigo_Sucursal'].astype(int)
+        df_demoras['Demora']= df_demoras['Demora'].astype(int)
+        df_demoras.fillna(0, inplace= True)         
+        print(f"---> Datos de OC DEMORADAS Recuperados: {etiqueta}")
+        return df_demoras
+    except Exception as e:
+        print(f"Error en get_execution: {e}")
+        return None
+    finally:
+        Close_Connection(conn)
+
+def obtener_demora_oc_OLD(id_proveedor, etiqueta):
+    secrets = dotenv_values(".env")   # Connection String from .env
+    folder = secrets["FOLDER_DATOS"]
+    
+    #  Intento recuperar datos cacheados
+    try:         
+        print(f"-> Generando datos para ID: {id_proveedor}, Label: {etiqueta}")
+        # Configuración de conexión
+        conn = Open_Connection()
+        
+        # ----------------------------------------------------------------
+        # FILTRA solo PRODUCTOS HABILITADOS y Traer datos de STOCK y PENDIENTES desde PRODUCCIÓN
+        # ----------------------------------------------------------------
         query = f"""              
         SELECT  [C_OC]
             ,[U_PREFIJO_OC]
@@ -496,6 +716,30 @@ def Exportar_Pronostico(df_forecast, proveedor, etiqueta, algoritmo):
         Close_Connection(conn)
 
 def get_precios(id_proveedor):
+    conn = Open_Connection()
+    query = f"""
+        SELECT c_proveedor_primario, c_articulo, c_sucu_empr, i_precio_vta, i_costo_estadistico
+        FROM src.base_forecast_precios
+        WHERE c_proveedor_primario = {id_proveedor};
+    """
+    # Ejecutar la consulta SQL
+    precios = pd.read_sql(query, conn)
+    
+    # Renombrar columnas para estandarizar
+    precios = precios.rename(columns={
+        "c_proveedor_primario": "C_PROVEEDOR_PRIMARIO",
+        "c_articulo": "C_ARTICULO",
+        "c_sucu_empr": "C_SUCU_EMPR",
+        "i_precio_vta": "I_PRECIO_VTA",
+        "i_costo_estadistico": "I_COSTO_ESTADISTICO"
+        })
+    
+    precios['C_PROVEEDOR_PRIMARIO']= precios['C_PROVEEDOR_PRIMARIO'].astype(int)
+    precios['C_ARTICULO']= precios['C_ARTICULO'].astype(int)
+    precios['C_SUCU_EMPR']= precios['C_SUCU_EMPR'].astype(int)
+    return precios
+
+def get_precios_OLD (id_proveedor):
     conn = Open_Connection()
     query = f"""
         SELECT 
@@ -1314,6 +1558,20 @@ def generar_mini_grafico( folder, name):
     df_ventas['Codigo_Articulo']= df_ventas['Codigo_Articulo'].astype(int)
     df_ventas['Sucursal']= df_ventas['Sucursal'].astype(int)
     df_ventas['Fecha']= pd.to_datetime(df_ventas['Fecha'])
+    
+    # 🔄 Agrupar por Fecha, Código de Artículo y Sucursal, para consolidar múltiples precios
+    df_ventas = (
+        df_ventas
+        .groupby(['Fecha', 'Codigo_Articulo', 'Sucursal'], as_index=False)
+        .agg({'Unidades': 'sum'})
+    )
+    # Buscar filas duplicadas por clave compuesta
+    duplicados = df_ventas[df_ventas.duplicated(subset=["Fecha", "Codigo_Articulo", "Sucursal"], keep=False)]
+    # Ordenar para facilitar lectura
+    duplicados = duplicados.sort_values(["Codigo_Articulo", "Sucursal", "Fecha"])
+    # Mostrar o exportar
+    print("⚠️ Filas duplicadas encontradas:")
+    print(duplicados)
 
     # RUTINA DE MINIGRAFICO
     fecha_maxima = df_ventas["Fecha"].max()   # Obtener la fecha máxima
@@ -1448,6 +1706,20 @@ def insertar_graficos_forecast(algoritmo, name, id_proveedor):
     df_ventas['Codigo_Articulo']= df_ventas['Codigo_Articulo'].astype(int)
     df_ventas['Sucursal']= df_ventas['Sucursal'].astype(int)
     df_ventas['Fecha']= pd.to_datetime(df_ventas['Fecha'])
+    
+    # 🔄 Agrupar por Fecha, Código de Artículo y Sucursal, para consolidar múltiples precios
+    df_ventas = (
+        df_ventas
+        .groupby(['Fecha', 'Codigo_Articulo', 'Sucursal'], as_index=False)
+        .agg({'Unidades': 'sum'})
+    )
+    # Buscar filas duplicadas por clave compuesta
+    duplicados = df_ventas[df_ventas.duplicated(subset=["Fecha", "Codigo_Articulo", "Sucursal"], keep=False)]
+    # Ordenar para facilitar lectura
+    duplicados = duplicados.sort_values(["Codigo_Articulo", "Sucursal", "Fecha"])
+    # Mostrar o exportar
+    print("⚠️ Filas duplicadas encontradas:")
+    print(duplicados)
 
     # Recuperando Forecast Calculado
     df_forecast = pd.read_csv(f'{folder}/{algoritmo}_Solicitudes_Compra.csv')
@@ -1525,29 +1797,69 @@ def guardar_grafico_base64(base64_str, path_archivo):
     with open(path_archivo, "wb") as f:
         f.write(base64.b64decode(base64_str))
 
+# BLOQUE AGREGADO PARA INCORPORAR STOCK en formato DICCIONARIO
+from datetime import date, datetime, timedelta
 
-def generar_grafico_json(dfv, articulo, sucursal, Forecast, Average, ventas_last, ventas_previous, ventas_same_year):
+def convertir_stock_diario_a_dict(df_stock):
+    """Convierte df_stock en un diccionario {fecha: cantidad}, solo hasta ayer y con fechas válidas."""
+    def es_fecha_valida(anio, mes, dia):
+        try:
+            return date(anio, mes, dia)
+        except ValueError:
+            return None
+
+    resultado = {}
+    for _, row in df_stock.iterrows():
+        anio = int(row['c_anio'])
+        mes = int(row['c_mes'])
+
+        for col in df_stock.columns:
+            if col.startswith("q_dia"):
+                dia = int(col.replace("q_dia", ""))
+                fecha_valida = es_fecha_valida(anio, mes, dia)
+                if fecha_valida and fecha_valida <= (datetime.now().date() - timedelta(days=1)):
+                    resultado[fecha_valida.isoformat()] = row[col]
+    return resultado
+
+def generar_grafico_json(dfv, dfs, articulo, sucursal, Forecast, Average, ventas_last, ventas_previous, ventas_same_year):
     fecha_maxima = dfv["Fecha"].max()
+
+    # Filtrar ventas por artículo y sucursal
     df_filtrado = dfv[(dfv["Codigo_Articulo"] == articulo) & (dfv["Sucursal"] == sucursal)]
     df_filtrado = df_filtrado[df_filtrado["Fecha"] >= (fecha_maxima - pd.Timedelta(days=50))]
 
+    # Agrupar SIEMPRE por fecha para evitar duplicados silenciosos
+    df_filtrado = (
+        df_filtrado
+        .groupby("Fecha", as_index=False)
+        .agg({"Unidades": "sum"})
+    )
+
+    df_filtrado = df_filtrado.sort_values("Fecha").reset_index(drop=True)
+
+    # Media móvil
     df_filtrado["Media_Movil"] = df_filtrado["Unidades"].rolling(window=7, min_periods=1).mean().fillna(0)
     df_filtrado["Semana"] = df_filtrado["Fecha"].dt.to_period("W").astype(str)
 
+    # Agregación semanal
     df_semanal = df_filtrado.groupby("Semana")["Unidades"].sum().reset_index()
-    df_semanal["Semana_Num"] = df_filtrado.groupby("Semana")["Fecha"].min().reset_index()["Fecha"].dt.isocalendar().week.astype(int)
+    semanas = df_filtrado.groupby("Semana")["Fecha"].min().reset_index()
+    df_semanal["Semana_Num"] = semanas["Fecha"].dt.isocalendar().week.astype(int)
     df_semanal["Media_Movil"] = df_semanal["Unidades"].rolling(window=7, min_periods=1).mean()
 
-    # Fechas de comparación
+    # Cálculos históricos
     fecha_inicio_ultimos30 = fecha_maxima - pd.Timedelta(days=30)
     fecha_inicio_previos30 = fecha_inicio_ultimos30 - pd.Timedelta(days=30)
     fecha_inicio_anio_anterior = fecha_inicio_ultimos30 - pd.DateOffset(years=1)
     fecha_fin_anio_anterior = fecha_inicio_previos30 - pd.DateOffset(years=1)
 
-    ventas_ultimos_30 = float(df_filtrado[df_filtrado["Fecha"] > fecha_inicio_ultimos30]["Unidades"].sum().item())
-    ventas_previos_30 = float(df_filtrado[
-        (df_filtrado["Fecha"] > fecha_inicio_previos30) & (df_filtrado["Fecha"] <= fecha_inicio_ultimos30)
-    ]["Unidades"].sum().item())
+    ventas_ultimos_30 = float(df_filtrado[df_filtrado["Fecha"] > fecha_inicio_ultimos30]["Unidades"].sum())
+    ventas_previos_30 = float(
+        df_filtrado[
+            (df_filtrado["Fecha"] > fecha_inicio_previos30) &
+            (df_filtrado["Fecha"] <= fecha_inicio_ultimos30)
+        ]["Unidades"].sum()
+    )
 
     df_filtrado_anio_anterior = df_filtrado.copy()
     df_filtrado_anio_anterior["Fecha"] = df_filtrado_anio_anterior["Fecha"] - pd.DateOffset(years=1)
@@ -1555,8 +1867,14 @@ def generar_grafico_json(dfv, articulo, sucursal, Forecast, Average, ventas_last
         df_filtrado_anio_anterior[
             (df_filtrado_anio_anterior["Fecha"] > fecha_inicio_anio_anterior) &
             (df_filtrado_anio_anterior["Fecha"] <= fecha_fin_anio_anterior)
-        ]["Unidades"].sum().item()
+        ]["Unidades"].sum()
     )
+
+    # STOCK
+    dfs["c_articulo"] = dfs["c_articulo"].astype(int)
+    dfs["c_sucu_empr"] = dfs["c_sucu_empr"].astype(int)   
+    dfs_filtrado = dfs[(dfs["c_articulo"] == articulo) & (dfs["c_sucu_empr"] == sucursal)]
+    datos_stock = convertir_stock_diario_a_dict(dfs_filtrado)
 
     return {
         "articulo": int(articulo),
@@ -1573,8 +1891,10 @@ def generar_grafico_json(dfv, articulo, sucursal, Forecast, Average, ventas_last
         "average": float(Average),
         "ventas_ultimos_30": float(ventas_ultimos_30),
         "ventas_previos_30": float(ventas_previos_30),
-        "ventas_anio_anterior": float(ventas_mismo_periodo_anio_anterior)
+        "ventas_anio_anterior": float(ventas_mismo_periodo_anio_anterior),
+        "stock_diario": datos_stock
     }
+
 
 import json
 import numpy as np
@@ -1601,6 +1921,20 @@ def insertar_graficos_json(algoritmo, name, id_proveedor):
     df_ventas['Codigo_Articulo']= df_ventas['Codigo_Articulo'].astype(int)
     df_ventas['Sucursal']= df_ventas['Sucursal'].astype(int)
     df_ventas['Fecha']= pd.to_datetime(df_ventas['Fecha'])
+    
+    # 🔄 Agrupar por Fecha, Código de Artículo y Sucursal, para consolidar múltiples precios
+    df_ventas = (
+        df_ventas
+        .groupby(['Fecha', 'Codigo_Articulo', 'Sucursal'], as_index=False)
+        .agg({'Unidades': 'sum'})
+    )
+    # Buscar filas duplicadas por clave compuesta
+    duplicados = df_ventas[df_ventas.duplicated(subset=["Fecha", "Codigo_Articulo", "Sucursal"], keep=False)]
+    # Ordenar para facilitar lectura
+    duplicados = duplicados.sort_values(["Codigo_Articulo", "Sucursal", "Fecha"])
+    # Mostrar o exportar
+    print("⚠️ Filas duplicadas encontradas:")
+    print(duplicados)
 
     # Recuperando Forecast Calculado
     df_forecast = pd.read_csv(f'{folder}/{algoritmo}_Solicitudes_Compra.csv')
