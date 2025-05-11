@@ -16,8 +16,14 @@ import pandas as pd
 import time
 from datetime import datetime
 
+# Verificar en que entorno está funcioando
+import sys
+import os
+print(f"Python executable: {sys.executable}")
+print(f"PATH: {os.environ.get('PATH')}")
+
 # Solo importa lo necesario desde el módulo de funciones
-from funciones_forecast import (
+from forecast_core.funciones_forecast import (
     get_forecast,
     generar_datos,
     Procesar_ALGO_01,

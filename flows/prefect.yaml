@@ -1,17 +1,20 @@
-name: ejemplo_prefect
-prefect-version: 3.4.0
+name: forecast_prefect
+prefect-version: 3.4.1
 
 build: null
 push: null
 
 pull:
   - prefect.deployments.steps.set_working_directory:
-      directory: .
+      directory: /srv/FORECAST/flows
 
 deployments:
-  - name: saludo-inicial
-    flow_name: flujo_de_prueba
-    entrypoint: flow.py:flujo_prueba
+  - name: Forecast cada 10 min
+    flow_name: Flujo Forecast Principal
+    entrypoint: forecast_flow.py:forecast_flow
+    schedule:
+      cron: "*/10 8-18 * * *"
+      timezone: America/Argentina/Buenos_Aires
     work_pool:
-      name: default-agent-pool
+      name: forecast-pool
       work_queue_name: default

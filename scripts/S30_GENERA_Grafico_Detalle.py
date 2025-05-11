@@ -10,12 +10,25 @@ Autor: EWE - Zeetrex
 Fecha de creación: [2025-03-22]
 """
 import traceback
-import os
 import time
 from datetime import datetime
 
+# Cargar configuración DINAMIDA de acuerdo al entorno
+from dotenv import dotenv_values
+import os
+import sys
+ENV_PATH = os.environ.get("FORECAST_ENV_PATH", "E:/ETL/FORECAST/.env")  # Toma Producción si está definido, o la ruta por defecto
+# Verificar si el archivo .env existe
+if not os.path.exists(ENV_PATH):
+    print(f"El archivo .env no existe en la ruta: {ENV_PATH}")
+    print(f"Directorio actual: {os.getcwd()}")
+    sys.exit(1)
+    
+secrets = dotenv_values(ENV_PATH)
+folder = f"{secrets['BASE_DIR']}/{secrets['FOLDER_DATOS']}"
+
 # Solo importar lo necesario desde el módulo de funciones
-from funciones_forecast import (
+from forecast_core.funciones_forecast  import (
     get_execution_execute_by_status,
     update_execution_execute,
     generar_grafico_base64,
@@ -27,10 +40,6 @@ from funciones_forecast import (
 
 import pandas as pd # uso localmente la lectura de archivos.
 # import ace_tools_open as tools
-
-from dotenv import dotenv_values
-secrets = dotenv_values(".env")
-folder = secrets["FOLDER_DATOS"]
 
 # RUTINA MEJORADA, Con RESGUARDO PARCIAL de Trabajo Realizado.
 def insertar_graficos_forecast(algoritmo, name, id_proveedor):

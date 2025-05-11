@@ -1,0 +1,17 @@
+###
+### Deployment file for Forecast cada 10 min
+###
+name: Forecast cada 10 min
+flow_name: Flujo Forecast Principal
+version: null
+entrypoint: flows/forecast_flow.py:forecast_flow
+cron: "*/10 8-18 * * *"
+work_pool:
+  name: forecast-pool
+  work_queue_name: null
+  priority: null
+tags: []
+parameters: {}
+infra_overrides: {}
+schedule:
+  active: true

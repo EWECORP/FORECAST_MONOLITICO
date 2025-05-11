@@ -18,15 +18,31 @@ from sqlalchemy.dialects.postgresql import insert
 from dotenv import dotenv_values
 import pyodbc
 import logging
+# Cargar configuración DINAMIDA de acuerdo al entorno
+from dotenv import dotenv_values
 import os
+import sys
+ENV_PATH = os.environ.get("FORECAST_ENV_PATH", "E:/ETL/FORECAST/.env")  # Toma Producción si está definido, o la ruta por defecto
+# Verificar si el archivo .env existe
+if not os.path.exists(ENV_PATH):
+    print(f"El archivo .env no existe en la ruta: {ENV_PATH}")
+    print(f"Directorio actual: {os.getcwd()}")
+    sys.exit(1)
+    
+secrets = dotenv_values(ENV_PATH)
+folder = f"{secrets['BASE_DIR']}/{secrets['FOLDER_DATOS']}"
+folder_logs = f"{secrets['BASE_DIR']}/{secrets["FOLDER_LOGS"]}"
 
-# Cargar configuración
-secrets = dotenv_values(".env")
-folder_logs = secrets["FOLDER_DATOS"]
+# Solo importa lo necesario desde el módulo de funciones
+from forecast_core.funciones_forecast  import (
+    Open_Diarco_Data,
+    Open_Connection
+) 
+
 os.makedirs(folder_logs, exist_ok=True)
 log_file = os.path.join(folder_logs, "publicacion_oc_precarga.log")
 
-
+#
 # Configurar logging
 logging.basicConfig(
     filename=log_file,
@@ -35,25 +51,17 @@ logging.basicConfig(
     datefmt="%Y-%m-%d %H:%M:%S"
 )
 
-def Open_Diarco_Data():
-    try:
-        conn_str = f"postgresql+psycopg2://{secrets['USUARIO3']}:{secrets['CONTRASENA3']}@{secrets['SERVIDOR3']}:{secrets['PUERTO3']}/{secrets['BASE3']}"
-        return create_engine(conn_str)
-    except Exception as e:
-        print(f'Error en la conexión: {e}')
-        return None
 
 def Open_Diarco_Test():
-    conn_str = (
-        f"DRIVER={{ODBC Driver 17 for SQL Server}};"
-        f"SERVER={secrets['TEST_SERVER']};"
-        f"DATABASE={secrets['TEST_BASE']};"
-        f"UID={secrets['TEST_USER']};"
-        f"PWD={secrets['TEST_PASS']};"
-        f"TrustServerCertificate=yes;"
-    )
-    conn = pyodbc.connect(conn_str, autocommit=False)
-    return conn
+    secrets = dotenv_values("/srv/FORECAST/forecast_core/.env")
+    conn_str = f'DRIVER={secrets["SQLT_DRIVER"]};SERVER={secrets["SQLT_SERVER"]};PORT={secrets["SQLT_PORT"]};DATABASE={secrets["SQLT_DATABASE"]};UID={secrets["SQLT_USER"]};PWD={secrets["SQLT_PASSWORD"]}'
+    # print (conn_str) 
+    try:    
+        conn = pyodbc.connect(conn_str)
+        return conn
+    except:
+        print('Error en la Conexión')
+        return None
 
 # Función para limpiar y normalizar los campos
 def limpiar_campos_oc(df):

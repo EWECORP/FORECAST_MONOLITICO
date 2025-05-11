@@ -8,9 +8,22 @@ Al finalizar se actualiza el estado a 30 en la base de datos.
 Autor: EWE - Zeetrex
 Fecha de creación: [2025-03-22]
 """
+# Cargar configuración DINAMIDA de acuerdo al entorno
+from dotenv import dotenv_values
+import os
+import sys
+ENV_PATH = os.environ.get("FORECAST_ENV_PATH", "E:/ETL/FORECAST/.env")  # Toma Producción si está definido, o la ruta por defecto
+# Verificar si el archivo .env existe
+if not os.path.exists(ENV_PATH):
+    print(f"El archivo .env no existe en la ruta: {ENV_PATH}")
+    print(f"Directorio actual: {os.getcwd()}")
+    sys.exit(1)
+    
+secrets = dotenv_values(ENV_PATH)
+folder = f"{secrets['BASE_DIR']}/{secrets['FOLDER_DATOS']}"
 
 # Solo importa lo necesario desde el módulo de funciones
-from funciones_forecast import (
+from forecast_core.funciones_forecast  import (
     Open_Conn_Postgres,
     Close_Connection,
     get_execution_execute_by_status,
@@ -20,10 +33,6 @@ from funciones_forecast import (
 
 import pandas as pd # uso localmente la lectura de archivos.
 import ace_tools_open as tools
-
-from dotenv import dotenv_values
-secrets = dotenv_values(".env")
-folder = secrets["FOLDER_DATOS"]
 
 print(f"-> Datos Recuperados del CACHE: {secrets['FOLDER_DATOS']}")
 
@@ -36,7 +45,7 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
     df_ventas['Fecha']= pd.to_datetime(df_ventas['Fecha'])
 
     # Recuperar Maestro de Artículos
-    articulos = pd.read_csv(f'{folder}/{name}_Articulos.csv')
+    articulos = pd.read_csv(f'{folder}/{name}_articulos.csv')
 
     # Recuperando Forecast Calculado
     df_forecast = pd.read_csv(f'{folder}/{algoritmo}_Solicitudes_Compra.csv')
