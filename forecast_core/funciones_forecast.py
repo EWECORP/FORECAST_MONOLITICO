@@ -592,7 +592,7 @@ def obtener_demora_oc(id_proveedor, etiqueta):
     try:         
         print(f"-> Generando datos para ID: {id_proveedor}, Label: {etiqueta}")
         # Configuración de conexión
-        conn = Open_Connection()
+        conn = Open_Diarco_Data()
         
         # ----------------------------------------------------------------
         # FILTRA solo PRODUCTOS HABILITADOS y Traer datos de STOCK y PENDIENTES desde PRODUCCIÓN
