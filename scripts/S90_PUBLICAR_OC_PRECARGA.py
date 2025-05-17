@@ -1,14 +1,13 @@
 """
 Nombre del módulo: S90_PUBLICAR_OC_PRECARGA.py
 
-Descripción:
-Migración optimizada de datos de órdenes de compra precargadas desde PostgreSQL (Open_Diarco_Data)
-a SQL Server de Test (Open_Diarco_Test), con log de auditoría y soporte para inserciones masivas.
-Migración optimizada de datos desde PostgreSQL (Open_Diarco_Data)
-a SQL Server de test (Open_Diarco_Test), con log y marca de publicación.
+Por la aquitectura del sistema esto se configura como un proceso PULL
 
+De acuerdo al cronograma definido va a buscar las OK que estén en estado 90 para publicarlas en
+SGM - TESTING / PRODUCCIÓN
+SE MUEVE A --> ETL_DIARCO  (LOS CAMBIOS SE REALIZARÄN EN ETL_DIARCO)
 Autor: EWE - Zeetrex
-Fecha: 2025-04-25
+Fecha: 2025-05-11
 """
 
 import pandas as pd
@@ -22,6 +21,10 @@ import logging
 from dotenv import dotenv_values
 import os
 import sys
+import io
+
+sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8', errors='replace')
+
 ENV_PATH = os.environ.get("FORECAST_ENV_PATH", "E:/ETL/FORECAST/.env")  # Toma Producción si está definido, o la ruta por defecto
 # Verificar si el archivo .env existe
 if not os.path.exists(ENV_PATH):

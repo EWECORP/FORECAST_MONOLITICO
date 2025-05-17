@@ -27,8 +27,7 @@ def forecast_flow():
         "S10_GENERA_FORECAST_Planificado.py",
         "S20_GENERA_FORECAST_Extendido.py",
         "S30_GENERA_Grafico_Detalle.py",
-        "S40_SUBIR_Forecast_Connexa.py",
-        "S90_PUBLICAR_OC_PRECARGA.py"
+        "S40_SUBIR_Forecast_Connexa.py"
     ]
     for script in scripts:
         ejecutar_script(script)

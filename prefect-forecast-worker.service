@@ -1,0 +1,18 @@
+
+[Unit]
+Description=Prefect Worker for Forecast
+After=network.target
+
+[Service]
+User=root
+WorkingDirectory=/srv/FORECAST
+Environment="PREFECT_API_URL=https://orquestador.connexa-cloud.com/api"
+ExecStart=/srv/FORECAST/venv/bin/prefect worker start -p goldfarb-ultrahost
+Restart=always
+RestartSec=10
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

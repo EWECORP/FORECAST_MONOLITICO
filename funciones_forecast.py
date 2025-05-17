@@ -139,7 +139,7 @@ def Open_Connexa_Alquemy():
         engine = sqlalchemy.create_engine(
         f"{DB_TYPE}://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
         )
-        conn = pg2.connect(engine)        
+        conn = pg2.connect(engine)         # type: ignore
         return conn
     except Exception as e:
         print(f'Error en la conexión: {e}')
@@ -185,7 +185,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             WHERE c_proveedor_primario = {id_proveedor}
             ORDER BY c_articulo, c_sucu_empr;
         """
-        articulos = pd.read_sql(query_articulos, conn)
+        articulos = pd.read_sql(query_articulos, conn) # type: ignore 
         if articulos.empty:
             print(f"❗ No se encontraron artículos para el proveedor {id_proveedor}.")
             Close_Connection(conn)
@@ -209,7 +209,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             WHERE c_proveedor_primario = {id_proveedor}
             ORDER BY fecha;
         """
-        demanda = pd.read_sql(query_ventas, conn)
+        demanda = pd.read_sql(query_ventas, conn) # type: ignore
         if demanda.empty:
             print(f"⚠️ No se encontraron ventas para el proveedor {id_proveedor}.")
             Close_Connection(conn)
@@ -346,7 +346,7 @@ def generar_datos_OLD(id_proveedor, etiqueta, ventana):
         ORDER BY S.[C_ARTICULO],S.[C_SUCU_EMPR];
         """
         # Ejecutar la consulta SQL
-        articulos = pd.read_sql(query, conn)
+        articulos = pd.read_sql(query, conn) # type: ignore
         file_path = f'{folder}/{etiqueta}_Articulos.csv'
         articulos['C_PROVEEDOR_PRIMARIO']= articulos['C_PROVEEDOR_PRIMARIO'].astype(int)
         articulos['C_ARTICULO']= articulos['C_ARTICULO'].astype(int)
@@ -382,7 +382,7 @@ def generar_datos_OLD(id_proveedor, etiqueta, ventana):
         """
 
         # Ejecutar la consulta SQL
-        demanda = pd.read_sql(query, conn)
+        demanda = pd.read_sql(query, conn) # type: ignore
         
         # UNIR Y FILTRAR solo la demanda de los Hartículos VALIDOS.
         # Realizar la unión (merge) de los DataFrames por las claves especificadas
@@ -459,7 +459,7 @@ def obtener_datos_stock(id_proveedor, etiqueta):
             ORDER BY codigo_articulo, codigo_sucursal;
         """
         # Ejecutar la consulta SQL
-        df_stock = pd.read_sql(query, conn)
+        df_stock = pd.read_sql(query, conn) # type: ignore
         # Renombrar columnas para estandarizar
         df_stock = df_stock.rename(columns={
             "codigo_proveedor": "Codigo_Proveedor",
@@ -559,7 +559,7 @@ def obtener_datos_stock_OLD (id_proveedor, etiqueta):
                 S.[C_SUCU_EMPR];
         """
         # Ejecutar la consulta SQL
-        df_stock = pd.read_sql(query, conn)
+        df_stock = pd.read_sql(query, conn) # type: ignore
         file_path = f'{folder}/{etiqueta}_Stock.csv'
         df_stock['Codigo_Proveedor']= df_stock['Codigo_Proveedor'].astype(int)
         df_stock['Codigo_Articulo']= df_stock['Codigo_Articulo'].astype(int)
@@ -594,7 +594,7 @@ def obtener_demora_oc(id_proveedor, etiqueta):
         WHERE codigo_proveedor = {id_proveedor};
         """
         # Ejecutar la consulta SQL
-        df_demoras = pd.read_sql(query, conn)
+        df_demoras = pd.read_sql(query, conn) # type: ignore
         # Renombrar columnas para estandarizar
         df_demoras = df_demoras.rename(columns={
             "c_oc": "C_OC",
@@ -664,7 +664,7 @@ def obtener_demora_oc_OLD(id_proveedor, etiqueta):
         AND DATEADD(DAY, [U_DIAS_LIMITE_ENTREGA], [F_ENTREGA]) < GETDATE();
         """
         # Ejecutar la consulta SQL
-        df_demoras = pd.read_sql(query, conn)
+        df_demoras = pd.read_sql(query, conn) # type: ignore
         df_demoras['Codigo_Proveedor']= df_demoras['Codigo_Proveedor'].astype(int)
         df_demoras['Codigo_Sucursal']= df_demoras['Codigo_Sucursal'].astype(int)
         df_demoras['Demora']= df_demoras['Demora'].astype(int)
@@ -705,9 +705,9 @@ def Exportar_Pronostico(df_forecast, proveedor, etiqueta, algoritmo):
     ]
 
     try:
-        with conn.cursor() as cur:
+        with conn.cursor() as cur: # type: ignore
             cur.executemany(insert_query, data_to_insert)
-        conn.commit()
+        conn.commit() # type: ignore
         print(f"✅ Inserción completada: {len(data_to_insert)} registros insertados.")
     except Exception as e:
         conn.rollback()
@@ -723,7 +723,7 @@ def get_precios(id_proveedor):
         WHERE c_proveedor_primario = {id_proveedor};
     """
     # Ejecutar la consulta SQL
-    precios = pd.read_sql(query, conn)
+    precios = pd.read_sql(query, conn) # type: ignore
     
     # Renombrar columnas para estandarizar
     precios = precios.rename(columns={
@@ -760,7 +760,7 @@ def get_precios_OLD (id_proveedor):
         ORDER BY S.[C_ARTICULO],S.[C_SUCU_EMPR];
     """
     # Ejecutar la consulta SQL
-    precios = pd.read_sql(query, conn)
+    precios = pd.read_sql(query, conn) # type: ignore
     precios['C_PROVEEDOR_PRIMARIO']= precios['C_PROVEEDOR_PRIMARIO'].astype(int)
     precios['C_ARTICULO']= precios['C_ARTICULO'].astype(int)
     precios['C_SUCU_EMPR']= precios['C_SUCU_EMPR'].astype(int)
@@ -893,7 +893,7 @@ def Calcular_Demanda_ALGO_01(df, id_proveedor, etiqueta, period_length, current_
     elapsed = round(time.time() - start_time, 2)
     print(f"🖼️ Preparación de Datos - Tiempo: {elapsed} seg")
     # Redondear la predicción al entero más cercano  y eliminar los Negativos
-    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0)
+    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0) # type: ignore
     df_forecast['Average'] = round(df_forecast['Forecast'] /period_length ,3)
     # Agregar las columnas id_proveedor y ventana
     df_forecast['id_proveedor'] = id_proveedor
@@ -993,7 +993,7 @@ def Calcular_Demanda_ALGO_02(df, id_proveedor, etiqueta, ventana, current_date):
         # Crear el DataFrame final con los resultados del forecast
     df_forecast = pd.DataFrame(resultados)
         # Redondear la predicción al entero más cercano
-    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0)
+    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0) # type: ignore
     df_forecast['Average'] = round(df_forecast['Forecast'] /ventana ,3)
     
         # Agregar las columnas id_proveedor y ventana
@@ -1094,7 +1094,7 @@ def Calcular_Demanda_ALGO_03(df, id_proveedor, etiqueta, ventana, current_date, 
     # Crear el DataFrame final con los resultados del forecast
     df_forecast = pd.DataFrame(resultados)
     # Redondear la predicción al entero más cercano
-    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0)
+    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0) # type: ignore
     df_forecast['Average'] = round(df_forecast['Forecast'] /ventana ,3)
     
     # Agregar las columnas id_proveedor y ventana
@@ -1525,7 +1525,7 @@ def get_forecast( id_proveedor, lbl_proveedor, period_lengh=30, algorithm='basic
 
         # Determinar la fecha base
     if current_date is None:
-        current_date = data['Fecha'].max()  # Se toma la última fecha en los datos
+        current_date = data['Fecha'].max()  # type: ignore # Se toma la última fecha en los datos
     else:
         current_date = pd.to_datetime(current_date)  # Se asegura que sea un objeto datetime
     print(f'Fecha actual {current_date}')

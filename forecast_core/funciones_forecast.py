@@ -145,7 +145,7 @@ def Open_Connexa_Alquemy():
         engine = sqlalchemy.create_engine(
         f"{DB_TYPE}://{DB_USER}:{DB_PASS}@{DB_HOST}:{DB_PORT}/{DB_NAME}"
         )
-        conn = pg2.connect(engine)        
+        conn = engine.connect()
         return conn
     except Exception as e:
         print(f'Error en la conexión: {e}')
@@ -161,6 +161,7 @@ def id_aleatorio():       # Helper para generar identificadores únicos
     return str(uuid.uuid4())
 
 # Nueva Rutina al MIGRAR a PostgreSQL y Ejecución REMOTA
+# 2025-05-16 Se agrega c_comprador
 def generar_datos(id_proveedor, etiqueta, ventana):
     from dotenv import dotenv_values
     import pandas as pd
@@ -209,7 +210,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         # --- VENTAS ---
         query_ventas = f"""
             SELECT fecha, codigo_articulo, sucursal, precio, costo, unidades, familia, rubro, subrubro,
-                c_proveedor_primario, nombre_articulo, clasificacion, fecha_procesado, marca_procesado
+                c_proveedor_primario, c_comprador, nombre_articulo, clasificacion, fecha_procesado, marca_procesado
             FROM src.base_forecast_ventas
             WHERE c_proveedor_primario = {id_proveedor}
             ORDER BY fecha;
@@ -287,6 +288,7 @@ def generar_datos_OLD(id_proveedor, etiqueta, ventana):
         # ----------------------------------------------------------------
         query = f"""
         SELECT A.[C_PROVEEDOR_PRIMARIO]
+            ,A.[C_COMPRADOR] 
             ,S.[C_ARTICULO]
             ,S.[C_SUCU_EMPR]
             ,S.[I_PRECIO_VTA]
@@ -353,6 +355,7 @@ def generar_datos_OLD(id_proveedor, etiqueta, ventana):
         articulos = pd.read_sql(query, conn)
         file_path = f'{folder}/{etiqueta}_articulos.csv'
         articulos['C_PROVEEDOR_PRIMARIO']= articulos['C_PROVEEDOR_PRIMARIO'].astype(int)
+        articulos['C_COMPRADOR']= articulos['C_COMPRADOR'].astype(int)
         articulos['C_ARTICULO']= articulos['C_ARTICULO'].astype(int)
         articulos['C_FAMILIA']= articulos['C_FAMILIA'].astype(int)
         articulos['C_RUBRO']= articulos['C_RUBRO'].astype(int)
@@ -600,7 +603,7 @@ def obtener_demora_oc(id_proveedor, etiqueta):
         query = f""" 
         SELECT c_oc, u_prefijo_oc, u_sufijo_oc, u_dias_limite_entrega, fecha_limite, demora, codigo_proveedor, 
         codigo_sucursal, c_sucu_destino, c_sucu_destino_alt, c_situac, f_situac, f_alta_sist, f_emision, f_entrega, c_usuario_operador
-        FROM src.base_forecast_oc_demoradas;
+        FROM src.base_forecast_oc_demoradas
         WHERE codigo_proveedor = {id_proveedor};
         """
         # Ejecutar la consulta SQL

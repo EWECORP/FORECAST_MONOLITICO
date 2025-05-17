@@ -1,0 +1,19 @@
+name: goldfarb-ultrahost
+prefect-version: 3.4.0
+
+pull:
+- prefect.deployments.steps.set_working_directory:
+    directory: /srv/FORECAST
+
+deployments:
+  - name: flujo_continuo_forecast
+    entrypoint: flows/forecast_flow.py:forecast_flow
+    description: "Secuencia de Procesos que verifican cambio de estados del Forecast"
+    tags: ["flow", "pedidos", "forecast"]
+    work_pool:
+      name: goldfarb-ultrahost
+      work_queue_name: forecast
+    schedule:
+      cron: "*/10 8-17 * * 1-5"
+      timezone: "America/Argentina/Buenos_Aires"
+    parameters: {}
