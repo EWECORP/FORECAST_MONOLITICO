@@ -55,12 +55,12 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
     conn = Open_Conn_Postgres()
     
     # Obtener Sites
-    stores = pd.read_sql("SELECT code, name, id FROM public.fnd_site", conn)
+    stores = pd.read_sql("SELECT code, name, id FROM public.fnd_site", conn) # type: ignore
     stores = stores[pd.to_numeric(stores['code'], errors='coerce').notna()].copy()
     stores['code'] = stores['code'].astype(int)
 
     # Obtener Productos
-    products = pd.read_sql("SELECT ext_code, description, id FROM public.fnd_product", conn)
+    products = pd.read_sql("SELECT ext_code, description, id FROM public.fnd_product", conn) # type: ignore
     products = products[pd.to_numeric(products['ext_code'], errors='coerce').notna()].copy()
     products['ext_code'] = products['ext_code'].astype(int)
 
@@ -90,7 +90,7 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
     
     # Agregar datos de reposición
     columnas_seleccionadas = [
-        'C_PROVEEDOR_PRIMARIO', 'C_ARTICULO', 'C_SUCU_EMPR', 'I_PRECIO_VTA', 'I_COSTO_ESTADISTICO',
+        'C_PROVEEDOR_PRIMARIO', 'C_COMPRADOR', 'C_ARTICULO', 'C_SUCU_EMPR', 'I_PRECIO_VTA', 'I_COSTO_ESTADISTICO',
         'Q_FACTOR_VTA_SUCU', 'Q_STOCK_UNIDADES', 'Q_STOCK_PESO', 'F_ULTIMA_VTA',
         'Q_VTA_ULTIMOS_15DIAS', 'Q_VTA_ULTIMOS_30DIAS', 'Q_TRANSF_PEND', 'Q_TRANSF_EN_PREP',
         'C_FAMILIA', 'C_RUBRO', 'Q_DIAS_CON_STOCK', 'M_OFERTA_SUCU', 'M_HABILITADO_SUCU', 
@@ -116,7 +116,7 @@ if __name__ == "__main__":
     fes = get_execution_execute_by_status(20)
 
     # Filtrar registros con supply_forecast_execution_status_id = 20  # FORECAST OK
-    for index, row in fes[fes["fee_status_id"] == 20].iterrows():
+    for index, row in fes[fes["fee_status_id"] == 20].iterrows(): # type: ignore
         algoritmo = row["name"]
         name = algoritmo.split('_ALGO')[0]
         execution_id = row["forecast_execution_id"]

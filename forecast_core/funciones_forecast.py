@@ -163,25 +163,35 @@ def id_aleatorio():       # Helper para generar identificadores únicos
 # Nueva Rutina al MIGRAR a PostgreSQL y Ejecución REMOTA
 # 2025-05-16 Se agrega c_comprador
 def generar_datos(id_proveedor, etiqueta, ventana):
-    from dotenv import dotenv_values
-    import pandas as pd
-    import os
-    from funciones_forecast import Open_Diarco_Data, Close_Connection
+    folder = secrets["FOLDER_DATOS"]
+    archivo_datos = f'{folder}/{etiqueta}.csv'
+    archivo_articulos = f'{folder}/{etiqueta}_articulos.csv'
+    
+    # Verificar la fecha de modificación del archivo
+    if os.path.exists(archivo_datos):
+        fecha_modificacion = datetime.fromtimestamp(os.path.getmtime(archivo_datos))
+        if fecha_modificacion.date() == datetime.today().date():
+            try:
+                data = pd.read_csv(archivo_datos)
+                data['Codigo_Articulo'] = data['Codigo_Articulo'].astype(int)
+                data['Sucursal'] = data['Sucursal'].astype(int)
+                data['Fecha'] = pd.to_datetime(data['Fecha'])
 
-    folder = f"{secrets['BASE_DIR']}/{secrets['FOLDER_DATOS']}"
+                articulos = pd.read_csv(archivo_articulos)
 
-    try:
-        data = pd.read_csv(f'{folder}/{etiqueta}.csv')
-        data['Codigo_Articulo'] = data['Codigo_Articulo'].astype(int)
-        data['Sucursal'] = data['Sucursal'].astype(int)
-        data['Fecha'] = pd.to_datetime(data['Fecha'])
-
-        articulos = pd.read_csv(f'{folder}/{etiqueta}_articulos.csv')
-        print(f"-> Datos Recuperados del CACHE: {id_proveedor}, Label: {etiqueta}")
-        return data, articulos
-
-    except FileNotFoundError:
+                print(f"-> Datos Recuperados del CACHE: {id_proveedor}, Label: {etiqueta}")
+                return data, articulos
+            except Exception as e:
+                print(f"Error al leer los archivos cacheados: {e}")
+        else:
+            # Eliminar archivos si la fecha no es la de hoy
+            os.remove(archivo_datos)
+            if os.path.exists(archivo_articulos):
+                os.remove(archivo_articulos)
+            print(f"-> Archivos eliminados por ser obsoletos: {archivo_datos}, {archivo_articulos}")
+    else:
         print(f"-> Generando datos para ID: {id_proveedor}, Label: {etiqueta}")
+        # Aquí puedes incluir el código para generar los datos si no cumplen con la condición
         conn = Open_Diarco_Data()
 
         # --- ARTÍCULOS ---
@@ -191,7 +201,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             WHERE c_proveedor_primario = {id_proveedor}
             ORDER BY c_articulo, c_sucu_empr;
         """
-        articulos = pd.read_sql(query_articulos, conn)
+        articulos = pd.read_sql(query_articulos, conn) # type: ignore
         if articulos.empty:
             print(f"❗ No se encontraron artículos para el proveedor {id_proveedor}.")
             Close_Connection(conn)
@@ -199,12 +209,13 @@ def generar_datos(id_proveedor, etiqueta, ventana):
 
         articulos.columns = articulos.columns.str.upper()
         articulos['C_PROVEEDOR_PRIMARIO'] = articulos['C_PROVEEDOR_PRIMARIO'].astype(int)
+        articulos['C_COMPRADOR'] = articulos['C_COMPRADOR'].astype(int)
         articulos['C_ARTICULO'] = articulos['C_ARTICULO'].astype(int)
         articulos['C_FAMILIA'] = articulos['C_FAMILIA'].astype(int)
         articulos['C_RUBRO'] = articulos['C_RUBRO'].astype(int)
         articulos['Q_DIAS_STOCK'] = articulos['Q_DIAS_STOCK'].fillna(ventana).astype(int)
         articulos['Q_DIAS_SOBRE_STOCK'] = articulos['Q_DIAS_SOBRE_STOCK'].fillna(0).astype(int)
-        articulos.to_csv(f'{folder}/{etiqueta}_articulos.csv', index=False, encoding='utf-8')
+        articulos.to_csv(archivo_articulos, index=False, encoding='utf-8')
         print(f"---> Datos de Artículos guardados")
 
         # --- VENTAS ---
@@ -215,7 +226,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             WHERE c_proveedor_primario = {id_proveedor}
             ORDER BY fecha;
         """
-        demanda = pd.read_sql(query_ventas, conn)
+        demanda = pd.read_sql(query_ventas, conn) # type: ignore
         if demanda.empty:
             print(f"⚠️ No se encontraron ventas para el proveedor {id_proveedor}.")
             Close_Connection(conn)
@@ -252,7 +263,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         data['C_SUCU_EMPR'] = data['C_SUCU_EMPR'].astype(int)
         data['Codigo_Articulo'] = data['Codigo_Articulo'].astype(int)
         data['Sucursal'] = data['Sucursal'].astype(int)
-        data.to_csv(f'{folder}/{etiqueta}.csv', index=False, encoding='utf-8')
+        data.to_csv(archivo_datos, index=False, encoding='utf-8')
         print(f"---> Datos de RECUPERACIÓN guardados")
 
         # Compactar solo VENTAS
@@ -352,7 +363,7 @@ def generar_datos_OLD(id_proveedor, etiqueta, ventana):
         ORDER BY S.[C_ARTICULO],S.[C_SUCU_EMPR];
         """
         # Ejecutar la consulta SQL
-        articulos = pd.read_sql(query, conn)
+        articulos = pd.read_sql(query, conn) # type: ignore
         file_path = f'{folder}/{etiqueta}_articulos.csv'
         articulos['C_PROVEEDOR_PRIMARIO']= articulos['C_PROVEEDOR_PRIMARIO'].astype(int)
         articulos['C_COMPRADOR']= articulos['C_COMPRADOR'].astype(int)
@@ -389,7 +400,7 @@ def generar_datos_OLD(id_proveedor, etiqueta, ventana):
         """
 
         # Ejecutar la consulta SQL
-        demanda = pd.read_sql(query, conn)
+        demanda = pd.read_sql(query, conn) # type: ignore
         
         # UNIR Y FILTRAR solo la demanda de los Hartículos VALIDOS.
         # Realizar la unión (merge) de los DataFrames por las claves especificadas
@@ -474,7 +485,7 @@ def obtener_datos_stock(id_proveedor, etiqueta):
             ORDER BY codigo_articulo, codigo_sucursal;
         """
         # Ejecutar la consulta SQL
-        df_stock = pd.read_sql(query, conn)
+        df_stock = pd.read_sql(query, conn) # type: ignore
         # Renombrar columnas para estandarizar
         df_stock = df_stock.rename(columns={
             "codigo_proveedor": "Codigo_Proveedor",
@@ -573,7 +584,7 @@ def obtener_datos_stock_OLD (id_proveedor, etiqueta):
                 S.[C_SUCU_EMPR];
         """
         # Ejecutar la consulta SQL
-        df_stock = pd.read_sql(query, conn)
+        df_stock = pd.read_sql(query, conn) # type: ignore
         file_path = f'{folder}/{etiqueta}_Stock.csv'
         df_stock['Codigo_Proveedor']= df_stock['Codigo_Proveedor'].astype(int)
         df_stock['Codigo_Articulo']= df_stock['Codigo_Articulo'].astype(int)
@@ -607,7 +618,7 @@ def obtener_demora_oc(id_proveedor, etiqueta):
         WHERE codigo_proveedor = {id_proveedor};
         """
         # Ejecutar la consulta SQL
-        df_demoras = pd.read_sql(query, conn)
+        df_demoras = pd.read_sql(query, conn) # type: ignore
         # Renombrar columnas para estandarizar
         df_demoras = df_demoras.rename(columns={
             "c_oc": "C_OC",
@@ -676,7 +687,7 @@ def obtener_demora_oc_OLD(id_proveedor, etiqueta):
         AND DATEADD(DAY, [U_DIAS_LIMITE_ENTREGA], [F_ENTREGA]) < GETDATE();
         """
         # Ejecutar la consulta SQL
-        df_demoras = pd.read_sql(query, conn)
+        df_demoras = pd.read_sql(query, conn) # type: ignore
         df_demoras['Codigo_Proveedor']= df_demoras['Codigo_Proveedor'].astype(int)
         df_demoras['Codigo_Sucursal']= df_demoras['Codigo_Sucursal'].astype(int)
         df_demoras['Demora']= df_demoras['Demora'].astype(int)
@@ -772,7 +783,7 @@ def get_precios_OLD (id_proveedor):
         ORDER BY S.[C_ARTICULO],S.[C_SUCU_EMPR];
     """
     # Ejecutar la consulta SQL
-    precios = pd.read_sql(query, conn)
+    precios = pd.read_sql(query, conn) # type: ignore
     precios['C_PROVEEDOR_PRIMARIO']= precios['C_PROVEEDOR_PRIMARIO'].astype(int)
     precios['C_ARTICULO']= precios['C_ARTICULO'].astype(int)
     precios['C_SUCU_EMPR']= precios['C_SUCU_EMPR'].astype(int)
@@ -2161,7 +2172,7 @@ def get_execution_by_status(status):
                 WHERE supply_forecast_execution_status_id = {status};
         """
         # Ejecutar la consulta SQL
-        fexsts = pd.read_sql(query, conn)
+        fexsts = pd.read_sql(query, conn) # type: ignore
         return fexsts
     except Exception as e:
         print(f"Error en get_execution_status: {e}")
@@ -2204,7 +2215,7 @@ def get_execution_execute_by_status(status):
             AND fee.last_execution = true;
         """
         # Ejecutar la consulta SQL
-        fexsts = pd.read_sql(query, conn)
+        fexsts = pd.read_sql(query, conn) # type: ignore
         return fexsts
     except Exception as e:
         print(f"Error en get_execution_status: {e}")

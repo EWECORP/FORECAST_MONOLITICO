@@ -31,8 +31,10 @@ if not os.path.exists(ENV_PATH):
 secrets = dotenv_values(ENV_PATH)
 folder = f"{secrets['BASE_DIR']}/{secrets['FOLDER_DATOS']}"
 
+sys.path.append("/srv/FORECAST/forecast_core")
+
 # Solo importa lo necesario desde el módulo de funciones
-from forecast_core.funciones_forecast  import (
+from funciones_forecast import (
     Open_Conn_Postgres,
     mover_archivos_procesados,
     actualizar_site_ids,
@@ -61,25 +63,6 @@ import os
 import math
 import time
 from functools import wraps
-
-def medir_tiempo(func):
-    @wraps(func)
-    def wrapper(*args, **kwargs):
-        print(f"\n🕒 Iniciando ejecución de {func.__name__}...")
-        inicio = time.time()
-        resultado = func(*args, **kwargs)
-        fin = time.time()
-        duracion = fin - inicio
-        print(f"✅ Finalizó {func.__name__} en {duracion:.2f} segundos.\n")
-        return resultado
-    return wrapper
-
-def mover_archivo(origen, destino_dir):
-    if not os.path.exists(destino_dir):
-        os.makedirs(destino_dir)
-    destino = os.path.join(destino_dir, os.path.basename(origen))
-    shutil.move(origen, destino)
-    
 
 # Decorador para medir tiempo de ejecución
 def medir_tiempo(func):
@@ -302,7 +285,7 @@ if __name__ == "__main__":
     # Leer Dataframe de FORECAST EXECUTION LISTOS PARA IMPORTAR A CONNEXA (DE 40 A 50)
     fes = get_execution_execute_by_status(40)
     
-    for index, row in fes[fes["fee_status_id"] == 40].iterrows():
+    for index, row in fes[fes["fee_status_id"] == 40].iterrows(): # type: ignore
         algoritmo = row["name"]
         name = algoritmo.split('_ALGO')[0]
         execution_id = row["forecast_execution_id"]
@@ -400,13 +383,13 @@ if __name__ == "__main__":
 
             # DEMORA de OC
             df_demora = obtener_demora_oc(id_proveedor= id_proveedor, etiqueta= algoritmo )
-            if df_demora.empty:  # Verifica si el DataFrame está vacío
+            if df_demora.empty:  # type: ignore # Verifica si el DataFrame está vacío
                 maximo_atraso_oc = 0
             else:
-                maximo_atraso_oc = int(round(df_demora['Demora'].max()))
+                maximo_atraso_oc = int(round(df_demora['Demora'].max())) # type: ignore
             
             # ARTICULOS FALTANTES
-            articulos_faltantes = df_stock[df_stock["Stock_Unidades"] == 0]["Codigo_Articulo"].nunique()
+            articulos_faltantes = df_stock[df_stock["Stock_Unidades"] == 0]["Codigo_Articulo"].nunique() # type: ignore
             if articulos_faltantes > 5:
                 quiebres= 'R'
             elif 1 < articulos_faltantes <= 5:

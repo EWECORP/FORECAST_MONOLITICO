@@ -59,11 +59,11 @@ def get_forecast( id_proveedor, lbl_proveedor, period_lengh=30, algorithm='basic
     print('Dentro del get_forecast')
     print(f'FORECAST control: {id_proveedor} - {lbl_proveedor} - ventana: {period_lengh} - {algorithm} factores: {f1} - {f2} - {f3}')
     # Generar los datos de entrada
-    data, articulos = generar_datos(id_proveedor, lbl_proveedor, period_lengh)
+    data, articulos = generar_datos(id_proveedor, lbl_proveedor, period_lengh) # type: ignore
 
     # Determinar la fecha base
     if current_date is None:
-        current_date = data['Fecha'].max()  # Se toma la última fecha en los datos
+        current_date = data['Fecha'].max()  # type: ignore # Se toma la última fecha en los datos
     else:
         current_date = pd.to_datetime(current_date)  # Se asegura que sea un objeto datetime
     print(f'Fecha actual {current_date}')
@@ -96,7 +96,7 @@ if __name__ == "__main__":
     try:
         # Ejecuta la rutina completa
         fes = get_execution_execute_by_status(10)
-        for index, row in fes[fes["fee_status_id"] == 10].iterrows():
+        for index, row in fes[fes["fee_status_id"] == 10].iterrows(): # type: ignore
             algoritmo = row["name"]
             name = algoritmo.split('_ALGO')[0]
             method = row["method"]

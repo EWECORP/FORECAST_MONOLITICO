@@ -27,8 +27,10 @@ if not os.path.exists(ENV_PATH):
 secrets = dotenv_values(ENV_PATH)
 folder = f"{secrets['BASE_DIR']}/{secrets['FOLDER_DATOS']}"
 
-# Solo importar lo necesario desde el módulo de funciones
-from forecast_core.funciones_forecast  import (
+sys.path.append("/srv/FORECAST/forecast_core")
+
+# Solo importa lo necesario desde el módulo de funciones
+from funciones_forecast import (
     get_execution_execute_by_status,
     update_execution_execute,
     generar_grafico_base64,
@@ -91,7 +93,7 @@ def insertar_graficos_forecast(algoritmo, name, id_proveedor):
     WHERE s.c_anio * 100 + s.c_mes >= TO_CHAR(CURRENT_DATE - INTERVAL '1 month', 'YYYYMM')::INTEGER
     AND a.c_proveedor_primario = {id_proveedor};
     """
-    df_stock = pd.read_sql(query_stock, conn)
+    df_stock = pd.read_sql(query_stock, conn) # type: ignore
     Close_Connection(conn)
     if df_stock.empty:
         print(f"⚠️ No se encontraron datos de stock para el proveedor {id_proveedor} en el mes actual.")
@@ -138,9 +140,9 @@ def insertar_graficos_forecast(algoritmo, name, id_proveedor):
             if nuevos % 50 == 0 or i == total - 1:
                 df_backup.to_csv(path_backup, index=False)
                 elapsed = round(time.time() - start_time, 2)
-                print(f"🖼️ Procesados {nuevos} nuevos registros ({i+1}/{total}) - Tiempo: {elapsed} seg")
+                print(f"🖼️ Procesados {nuevos} nuevos registros ({i+1}/{total}) - Tiempo: {elapsed} seg") # type: ignore
                 with open(path_log, "a", encoding="utf-8") as log:
-                    log.write(f"[{datetime.now()}] {nuevos} registros procesados ({i+1}/{total}) - Tiempo: {elapsed} seg\n")
+                    log.write(f"[{datetime.now()}] {nuevos} registros procesados ({i+1}/{total}) - Tiempo: {elapsed} seg\n") # type: ignore
 
         except Exception as e:
             print(f"❌ Error procesando gráfico para Art {row['Codigo_Articulo']} - Suc {row['Sucursal']}: {e}")
@@ -162,7 +164,7 @@ if __name__ == "__main__":
     fes = get_execution_execute_by_status(30)
 
     # Filtrar registros con supply_forecast_execution_status_id = 30  #FORECAST con DFATOSK
-    for index, row in fes[fes["fee_status_id"].isin([30])].iterrows():
+    for index, row in fes[fes["fee_status_id"].isin([30])].iterrows(): # type: ignore
         algoritmo = row["name"] 
         name = algoritmo.split('_ALGO')[0]
         execution_id = row["forecast_execution_id"]
@@ -182,7 +184,7 @@ if __name__ == "__main__":
 
             # Guardar el CSV con datos extendidos y gráficos
             file_path = f"{folder}/{algoritmo}_Pronostico_Extendido_FINAL.csv"
-            df_merged.to_csv(file_path, index=False)
+            df_merged.to_csv(file_path, index=False) # type: ignore
             print(f"📁 Archivo guardado correctamente: {file_path}")
 
             # ✅ Solo si todo fue exitoso, actualizamos el estado a 40
