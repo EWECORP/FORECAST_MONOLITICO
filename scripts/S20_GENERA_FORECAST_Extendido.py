@@ -12,8 +12,12 @@ Fecha de creación: [2025-03-22]
 from dotenv import dotenv_values
 import os
 import sys
+
+# Determinar la ruta base del proyecto
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+CORE_DIR = os.path.join(BASE_DIR, 'forecast_core')
+sys.path.insert(0, CORE_DIR)
 ENV_PATH = os.environ.get("FORECAST_ENV_PATH", "E:/ETL/FORECAST/.env")  # Toma Producción si está definido, o la ruta por defecto
-# Verificar si el archivo .env existe
 if not os.path.exists(ENV_PATH):
     print(f"El archivo .env no existe en la ruta: {ENV_PATH}")
     print(f"Directorio actual: {os.getcwd()}")
@@ -23,7 +27,7 @@ secrets = dotenv_values(ENV_PATH)
 folder = f"{secrets['BASE_DIR']}/{secrets['FOLDER_DATOS']}"
 
 # Solo importa lo necesario desde el módulo de funciones
-from forecast_core.funciones_forecast  import (
+from funciones_forecast  import (
     Open_Conn_Postgres,
     Close_Connection,
     get_execution_execute_by_status,

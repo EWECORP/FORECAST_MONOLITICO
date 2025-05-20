@@ -16,14 +16,41 @@ import pandas as pd
 import time
 from datetime import datetime
 
-# Verificar en que entorno está funcioando
-import sys
+# Cargar configuración DINAMIDA de acuerdo al entorno
+from dotenv import dotenv_values
 import os
+import sys
+
+# Determinar la ruta base del proyecto
+BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
+CORE_DIR = os.path.join(BASE_DIR, 'forecast_core')
+#if CORE_DIR not in sys.path:
+# print(CORE_DIR)
+sys.path.insert(0, CORE_DIR)
+
+print("Contenido de sys.path:")
+for path in sys.path:
+    print(path)
+
+ENV_PATH = os.environ.get("FORECAST_ENV_PATH", "E:/ETL/FORECAST/.env")  # Toma Producción si está definido, o la ruta por defecto
+
+# print(f"ENV_PART? {ENV_PATH}")
+# print(f"CORE DIR = {CORE_DIR}")
+# Verificar si el archivo .env existe
+if not os.path.exists(ENV_PATH):
+    print(f"El archivo .env no existe en la ruta: {ENV_PATH}")
+    print(f"Directorio actual: {os.getcwd()}")
+    sys.exit(1)
+    
+secrets = dotenv_values(ENV_PATH)
+folder = f"{secrets['BASE_DIR']}/{secrets['FOLDER_DATOS']}"
+
+# Verificar en que entorno está funcioando
 print(f"Python executable: {sys.executable}")
 print(f"PATH: {os.environ.get('PATH')}")
 
 # Solo importa lo necesario desde el módulo de funciones
-from forecast_core.funciones_forecast import (
+from funciones_forecast import (
     get_forecast,
     generar_datos,
     Procesar_ALGO_01,

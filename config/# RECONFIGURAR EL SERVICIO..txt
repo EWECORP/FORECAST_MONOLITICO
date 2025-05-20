@@ -1,0 +1,9 @@
+# RECONFIGURAR EL SERVICIO.
+cd /srv/FORECAST
+
+sudo systemctl daemon-reload
+
+sudo systemctl restart prefect-forecast-worker.service
+sudo systemctl show prefect-forecast-worker.service --property=Environment
+  Environment=PREFECT_API_URL=https://orquestador.connexa-cloud.com/api       FORECAST_ENV_PATH=/srv/FORECA>
+lines 1-1/1 (END)

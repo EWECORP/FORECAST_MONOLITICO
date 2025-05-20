@@ -221,7 +221,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         # --- VENTAS ---
         query_ventas = f"""
             SELECT fecha, codigo_articulo, sucursal, precio, costo, unidades, familia, rubro, subrubro,
-                c_proveedor_primario, c_comprador, nombre_articulo, clasificacion, fecha_procesado, marca_procesado
+                c_proveedor_primario, nombre_articulo, clasificacion, fecha_procesado, marca_procesado
             FROM src.base_forecast_ventas
             WHERE c_proveedor_primario = {id_proveedor}
             ORDER BY fecha;
@@ -728,9 +728,9 @@ def Exportar_Pronostico(df_forecast, proveedor, etiqueta, algoritmo):
     ]
 
     try:
-        with conn.cursor() as cur:
+        with conn.cursor() as cur: # type: ignore
             cur.executemany(insert_query, data_to_insert)
-        conn.commit()
+        conn.commit() # type: ignore
         print(f"✅ Inserción completada: {len(data_to_insert)} registros insertados.")
     except Exception as e:
         conn.rollback()
@@ -746,7 +746,7 @@ def get_precios(id_proveedor):
         WHERE c_proveedor_primario = {id_proveedor};
     """
     # Ejecutar la consulta SQL
-    precios = pd.read_sql(query, conn)
+    precios = pd.read_sql(query, conn) # type: ignore
     
     # Renombrar columnas para estandarizar
     precios = precios.rename(columns={
