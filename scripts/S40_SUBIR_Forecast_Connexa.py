@@ -171,7 +171,7 @@ def publicar_forecast_a_connexa(df_forecast_ext, forecast_execution_execute_id, 
                 row['Q_REPONER_INCLUIDO_SOBRE_STOCK'],
                 grafico_serializado,    # row['GRAFICO'],
                 #     quantity_stock, sales_last, sales_previous, sales_same_year, supplier_id, windows,
-                row.get('Q_STOCK_UNIDADES', 0) + row.get('Q_STOCK_PESO', 0),
+                row.get('Q_STOCK', 0),  # No se si poner Q_STOCK o Stock
                 row['ventas_last'],
                 row['ventas_previous'],
                 row['ventas_same_year'],

@@ -478,7 +478,7 @@ def obtener_datos_stock(id_proveedor, etiqueta):
         # FILTRA solo PRODUCTOS HABILITADOS y Traer datos de STOCK y PENDIENTES desde PRODUCCIÓN
         # ----------------------------------------------------------------
         query = f"""              
-            SELECT codigo_proveedor, codigo_articulo, codigo_sucursal, precio_venta, precio_costo, factor_venta, stock_unidades, 
+            SELECT codigo_proveedor, codigo_articulo, codigo_sucursal, precio_venta, precio_costo, factor_venta, m_vende_por_peso, stock,             
             venta_unidades_30_dias, stock_valorizado, venta_valorizada, dias_stock, f_ultima_vta, venta_unidades_1q, venta_unidades_2q
             
             FROM src.base_forecast_stock
@@ -495,7 +495,8 @@ def obtener_datos_stock(id_proveedor, etiqueta):
             "precio_venta": "Precio_Venta",
             "precio_costo": "Precio_Costo",
             "factor_venta": "Factor_Venta",
-            "stock_unidades": "Stock_Unidades",
+            "m_vende_por_peso": "M_Vende_Por_Peso",
+            "stock": "Stock_Unidades",
             "venta_unidades_30_dias": "Venta_Unidades_30_Dias",
             "stock_valorizado": "Stock_Valorizado",
             "venta_valorizada": "Venta_Valorizada",

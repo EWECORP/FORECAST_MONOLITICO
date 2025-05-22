@@ -95,7 +95,7 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
     # Agregar datos de reposición
     columnas_seleccionadas = [
         'C_PROVEEDOR_PRIMARIO', 'C_COMPRADOR', 'C_ARTICULO', 'C_SUCU_EMPR', 'I_PRECIO_VTA', 'I_COSTO_ESTADISTICO',
-        'Q_FACTOR_VTA_SUCU', 'Q_STOCK_UNIDADES', 'Q_STOCK_PESO', 'F_ULTIMA_VTA',
+        'Q_FACTOR_VTA_SUCU', 'Q_STOCK_UNIDADES', 'Q_STOCK_PESO', 'M_VENDE_POR_PESO','Q_STOCK', 'F_ULTIMA_VTA',
         'Q_VTA_ULTIMOS_15DIAS', 'Q_VTA_ULTIMOS_30DIAS', 'Q_TRANSF_PEND', 'Q_TRANSF_EN_PREP',
         'C_FAMILIA', 'C_RUBRO', 'Q_DIAS_CON_STOCK', 'M_OFERTA_SUCU', 'M_HABILITADO_SUCU', 
         'Q_REPONER', 'Q_REPONER_INCLUIDO_SOBRE_STOCK', 'Q_VENTA_DIARIA_NORMAL', 
