@@ -308,6 +308,7 @@ def generar_datos_OLD(id_proveedor, etiqueta, ventana):
             ,S.[Q_BULTOS_PENDIENTE_OC]-- OJO esto está en BULTOS DIARCO
             ,S.[Q_PESO_PENDIENTE_OC]
             ,S.[Q_UNID_PESO_PEND_RECEP_TRANSF]
+            ,A.[M_VENDE_POR_PESO]
             ,ST.Q_UNID_ARTICULO AS Q_STOCK_UNIDADES-- Stock Cierre Dia Anterior
             ,ST.Q_PESO_ARTICULO AS Q_STOCK_PESO
             ,S.[M_OFERTA_SUCU]
@@ -529,15 +530,18 @@ def obtener_datos_stock_OLD (id_proveedor, etiqueta):
         
         # ----------------------------------------------------------------
         # FILTRA solo PRODUCTOS HABILITADOS y Traer datos de STOCK y PENDIENTES desde PRODUCCIÓN
+        # OJO: hay que cambiar la consulta para que tome los datos de la tabla de stock por M_VENDE_POR_PESO cambiar StOCK por Peso
         # ----------------------------------------------------------------
         query = f"""              
             SELECT 
                 A.[C_PROVEEDOR_PRIMARIO] AS Codigo_Proveedor,
+                A.[C_COMPRADOR] AS Codigo_Comprador,
                 S.[C_ARTICULO] AS Codigo_Articulo,
                 S.[C_SUCU_EMPR] AS Codigo_Sucursal,
                 S.[I_PRECIO_VTA] AS Precio_Venta,
                 S.[I_COSTO_ESTADISTICO] AS Precio_Costo,
                 S.[Q_FACTOR_VTA_SUCU] AS Factor_Venta,
+                A.[M_VENDE_POR_PESO] AS M_Vende_Por_Peso,
                 ST.Q_UNID_ARTICULO + ST.Q_PESO_ARTICULO AS Stock_Unidades, -- Stock Cierre Día Anterior
                 
                 (R.[Q_VENTA_30_DIAS] + R.[Q_VENTA_15_DIAS]) * S.[Q_FACTOR_VTA_SUCU] AS Venta_Unidades_30_Dias, -- OJO convertida desde BULTOS DIARCO
