@@ -1,10 +1,11 @@
 import psycopg2
+from psycopg2.extensions import connection
 import uuid
 from datetime import datetime
 import tkinter as tk
 from tkinter import ttk, messagebox
 import ttkbootstrap as ttk
-from ttkbootstrap.constants import *
+from ttkbootstrap.constants import * # type: ignore
 from dotenv import dotenv_values
 
 # === CARGAR CREDENCIALES DESDE .env ===
@@ -17,15 +18,18 @@ DB_CONFIG = {
     'password': secrets['PGP_PASSWORD']
 }
 
+
+
 # === FUNCIONES DE BASE DE DATOS ===
 def obtener_proveedores():
     try:
-        with psycopg2.connect(**DB_CONFIG) as conn:
+        conn: connection
+        with psycopg2.connect(**DB_CONFIG) as conn:   # type: ignore
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT id, name, ext_code
                     FROM public.fnd_supplier
-                    ORDER BY ext_code
+                    ORDER BY CAST(ext_code as INT)
                 """)
                 return cur.fetchall()
     except Exception as e:
@@ -34,7 +38,7 @@ def obtener_proveedores():
 
 def obtener_modelos():
     try:
-        with psycopg2.connect(**DB_CONFIG) as conn:
+        with psycopg2.connect(**DB_CONFIG) as conn: # type: ignore
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT method, name, id
@@ -48,7 +52,7 @@ def obtener_modelos():
 
 def obtener_parametros(model_id):
     try:
-        with psycopg2.connect(**DB_CONFIG) as conn:
+        with psycopg2.connect(**DB_CONFIG) as conn: # type: ignore
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT name, data_type, default_value, id
@@ -63,7 +67,7 @@ def obtener_parametros(model_id):
 
 def obtener_supplier_id(ext_code):
     try:
-        with psycopg2.connect(**DB_CONFIG) as conn:
+        with psycopg2.connect(**DB_CONFIG) as conn: # type: ignore
             with conn.cursor() as cur:
                 cur.execute("""
                     SELECT id
@@ -159,7 +163,7 @@ def ejecutar_configuracion():
         return
 
     try:
-        with psycopg2.connect(**DB_CONFIG) as conn:
+        with psycopg2.connect(**DB_CONFIG) as conn: # type: ignore
             with conn.cursor() as cur:
                 execution_name = nombre_pronostico.get()
                 execution_description = model_name_valor.get()
