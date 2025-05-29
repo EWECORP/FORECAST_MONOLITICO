@@ -1,20 +1,20 @@
-# MODIFICADO: 2025-05-10
+# MODIFICADO: 2025-05-29
 # ACAPTADO a Nuevas Tablas y Estructura de Datos en POSTGRES
 # Se hace con Ejecución Remota 
 # Depende de procesos de estración Previo
 # Se mantiene por Compatibilidad con el resto de la aplicación las funciones _OLD
 """
 funciones_forecast.py
-Versión 1.2
+Versión 1.3
 
 Este módulo contiene todas las funciones necesarias para:
 - conexión a bases de datos
 - carga de datos históricos
 - ejecución de algoritmos de pronóstico (ALGO_01 a ALGO_06)
 - operaciones sobre ejecuciones de forecast
+- Nuevas Funciona JSON y Diccionarios
+- CONFIGURACIÓN DINAMICA desde .env
 
-Debe ser colocado en el mismo directorio que S10_GENERAR_FORECAST_Planificado.py
-o estar en el PYTHONPATH para poder importarse correctamente.
 """
 
 # Librerías necesarias
@@ -1849,7 +1849,29 @@ def convertir_stock_diario_a_dict(df_stock):
                     resultado[fecha_valida.isoformat()] = row[col]
     return resultado
 
-def generar_grafico_json(dfv, dfs, articulo, sucursal, Forecast, Average, ventas_last, ventas_previous, ventas_same_year):
+# BLOQUE AGREGADO PARA INCORPORAR OFERTAS en formato DICCIONARIO
+def convertir_ofertas_a_dict(df_ofertas):
+    """Convierte df_ofertas en un diccionario {fecha: flag}, solo hasta ayer y con fechas válidas."""
+    def es_fecha_valida(anio, mes, dia):
+        try:
+            return date(anio, mes, dia)
+        except ValueError:
+            return None
+
+    resultado = {}
+    for _, row in df_ofertas.iterrows():
+        anio = int(row['c_anio'])
+        mes = int(row['c_mes'])
+
+        for col in df_ofertas.columns:
+            if col.startswith("m_oferta_dia"):
+                dia = int(col.replace("m_oferta_dia", ""))
+                fecha_valida = es_fecha_valida(anio, mes, dia)
+                if fecha_valida and fecha_valida <= (datetime.now().date() - timedelta(days=1)):
+                    resultado[fecha_valida.isoformat()] = row[col]
+    return resultado
+
+def generar_grafico_json(dfv, dfs, dfo, articulo, sucursal, Forecast, Average, ventas_last, ventas_previous, ventas_same_year):
     fecha_maxima = dfv["Fecha"].max()
 
     # Filtrar ventas por artículo y sucursal
@@ -1903,6 +1925,12 @@ def generar_grafico_json(dfv, dfs, articulo, sucursal, Forecast, Average, ventas
     dfs["c_sucu_empr"] = dfs["c_sucu_empr"].astype(int)   
     dfs_filtrado = dfs[(dfs["c_articulo"] == articulo) & (dfs["c_sucu_empr"] == sucursal)]
     datos_stock = convertir_stock_diario_a_dict(dfs_filtrado)
+    
+    # OFERTAS
+    dfo["c_articulo"] = dfo["c_articulo"].astype(int)
+    dfo["c_sucu_empr"] = dfo["c_sucu_empr"].astype(int)   
+    dfo_filtrado = dfo[(dfo["c_articulo"] == articulo) & (dfo["c_sucu_empr"] == sucursal)]
+    datos_ofertas = convertir_ofertas_a_dict(dfo_filtrado)
 
     return {
         "articulo": int(articulo),
@@ -1920,7 +1948,8 @@ def generar_grafico_json(dfv, dfs, articulo, sucursal, Forecast, Average, ventas
         "ventas_ultimos_30": float(ventas_ultimos_30),
         "ventas_previos_30": float(ventas_previos_30),
         "ventas_anio_anterior": float(ventas_mismo_periodo_anio_anterior),
-        "stock_diario": datos_stock
+        "stock_diario": datos_stock,
+        "ofertas_diarias": datos_ofertas
     }
 
 

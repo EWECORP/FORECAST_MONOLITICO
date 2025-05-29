@@ -104,6 +104,32 @@ def insertar_graficos_forecast(algoritmo, name, id_proveedor):
     df_stock['c_mes'] = df_stock['c_mes'].astype(int)
     df_stock['c_articulo'] = df_stock['c_articulo'].astype(int)
     df_stock['c_sucu_empr'] = df_stock['c_sucu_empr'].astype(int)
+    
+    # Cargar OFERTAS por Proveedor
+    """Consulta el stock y devuelve un dict {fecha: cantidad}, limitado a fechas válidas hasta ayer."""
+    conn = Open_Diarco_Data()
+    query_oferta = f"""
+    SELECT DISTINCT o.c_anio, o.c_mes, o.c_sucu_empr, o.c_articulo, 
+        o.m_oferta_dia1,  o.m_oferta_dia2,  o.m_oferta_dia3,  o.m_oferta_dia4,  o.m_oferta_dia5,  o.m_oferta_dia6,  o.m_oferta_dia7,  o.m_oferta_dia8,  o.m_oferta_dia9, 
+        o.m_oferta_dia10,  o.m_oferta_dia11,  o.m_oferta_dia12,  o.m_oferta_dia13,  o.m_oferta_dia14,  o.m_oferta_dia15,  o.m_oferta_dia16,  o.m_oferta_dia17,  o.m_oferta_dia18,  o.m_oferta_dia19, 
+        o.m_oferta_dia20,  o.m_oferta_dia21,  o.m_oferta_dia22,  o.m_oferta_dia23,  o.m_oferta_dia24,  o.m_oferta_dia25,  o.m_oferta_dia26,  o.m_oferta_dia27,  o.m_oferta_dia28,  o.m_oferta_dia29, 
+        o.m_oferta_dia30,  o.m_oferta_dia31 
+    FROM src.t710_estadis_oferta_folder o
+    LEFT JOIN src.t050_articulos a
+    ON o.c_articulo = a.c_articulo
+    WHERE o.c_anio * 100 + o.c_mes >= TO_CHAR(CURRENT_DATE - INTERVAL '1 month', 'YYYYMM')::INTEGER
+    AND a.c_proveedor_primario ={id_proveedor};
+    """
+    df_oferta = pd.read_sql(query_oferta, conn) # type: ignore
+    Close_Connection(conn)
+    if df_oferta.empty:
+        print(f"⚠️ No se encontraron datos de OFERTAS para el proveedor {id_proveedor} en el mes actual.")
+        return {}
+    df_oferta['c_anio'] = df_oferta['c_anio'].astype(int)
+    df_oferta['c_mes'] = df_oferta['c_mes'].astype(int)
+    df_oferta['c_articulo'] = df_oferta['c_articulo'].astype(int)
+    df_oferta['c_sucu_empr'] = df_oferta['c_sucu_empr'].astype(int)
+    
 
     # Verificar si ya existe archivo con avances
     if os.path.exists(path_backup):
@@ -126,6 +152,7 @@ def insertar_graficos_forecast(algoritmo, name, id_proveedor):
             grafico = generar_grafico_json(
                 df_ventas,
                 df_stock,
+                df_oferta,
                 row['Codigo_Articulo'],
                 row['Sucursal'],
                 row['Forecast'],
