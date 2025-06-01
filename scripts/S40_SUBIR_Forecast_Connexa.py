@@ -25,7 +25,7 @@ import sys
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 CORE_DIR = os.path.join(BASE_DIR, 'forecast_core')
 sys.path.insert(0, CORE_DIR)
-ENV_PATH = os.environ.get("FORECAST_ENV_PATH", "E:/ETL/FORECAST/.env")  # Toma Producción si está definido, o la ruta por defecto
+ENV_PATH = os.environ.get("FORECAST_ENV_PATH", "/srv/FORECAST/forecast_core/.env")  # Toma Producción si está definido, o la ruta por defecto
 if not os.path.exists(ENV_PATH):
     print(f"El archivo .env no existe en la ruta: {ENV_PATH}")
     print(f"Directorio actual: {os.getcwd()}")
@@ -288,6 +288,10 @@ if __name__ == "__main__":
 
     # Leer Dataframe de FORECAST EXECUTION LISTOS PARA IMPORTAR A CONNEXA (DE 40 A 50)
     fes = get_execution_execute_by_status(40)
+    
+    if fes is None or fes.empty:
+        print("⚠️ No hay ejecuciones con estado 40 (FORECAST LISTO) para procesar.")
+        sys.exit(0)
     
     for index, row in fes[fes["fee_status_id"] == 40].iterrows(): # type: ignore
         algoritmo = row["name"]

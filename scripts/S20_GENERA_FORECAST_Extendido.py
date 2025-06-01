@@ -17,7 +17,7 @@ import sys
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 CORE_DIR = os.path.join(BASE_DIR, 'forecast_core')
 sys.path.insert(0, CORE_DIR)
-ENV_PATH = os.environ.get("FORECAST_ENV_PATH", "E:/ETL/FORECAST/.env")  # Toma Producción si está definido, o la ruta por defecto
+ENV_PATH = os.environ.get("FORECAST_ENV_PATH", "/srv/FORECAST/forecast_core/.env")  # Toma Producción si está definido, o la ruta por defecto
 if not os.path.exists(ENV_PATH):
     print(f"El archivo .env no existe en la ruta: {ENV_PATH}")
     print(f"Directorio actual: {os.getcwd()}")
@@ -36,7 +36,7 @@ from funciones_forecast  import (
 )
 
 import pandas as pd # uso localmente la lectura de archivos.
-import ace_tools_open as tools
+#import ace_tools_open as tools
 
 print(f"-> Datos Recuperados del CACHE: {secrets['FOLDER_DATOS']}")
 
@@ -118,6 +118,10 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
 # Punto de entrada
 if __name__ == "__main__":
     fes = get_execution_execute_by_status(20)
+        
+    if fes is None or fes.empty:
+        print("No hay ejecuciones con estado 20 (FORECAST OK) para procesar.")
+        sys.exit(0)
 
     # Filtrar registros con supply_forecast_execution_status_id = 20  # FORECAST OK
     for index, row in fes[fes["fee_status_id"] == 20].iterrows(): # type: ignore

@@ -1,0 +1,18 @@
+[Unit]
+Description=Prefect Worker for Forecast
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/srv/FORECAST
+ExecStart=/srv/FORECAST/venv/bin/prefect worker start -p goldfarb-claro
+Environment="FORECAST_ENV_PATH=/srv/FORECAST/forecast_core/.env"
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
+

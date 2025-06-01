@@ -1,18 +1,29 @@
-from prefect import flow, task
+from prefect import flow, task, get_run_logger
+#from subprocess import run, CalledProcessError
 import subprocess
 import sys
 import os
 
 @task(log_prints=True, retries=2, retry_delay_seconds=60)
 def ejecutar_script(nombre):
+    logger = get_run_logger()
     ruta = f"/srv/FORECAST/scripts/{nombre}"
     print(f"▶ Ejecutando: {ruta} con {sys.executable}")
     
-    resultado = subprocess.run(
-        [sys.executable, ruta],
-        capture_output=True,
-        text=True
-    )
+    try:      
+        logger.info(f"▶ Ejecutando: /srv/FORECAST/scripts/{nombre} con /srv/FORECAST/venv/bin/python3")
+        resultado = subprocess.run(
+            [sys.executable, ruta],
+            capture_output=True,
+            text=True,
+            check=True
+        )
+        logger.info(f"✅ Script ejecutado correctamente.\nSTDOUT:\n{resultado.stdout}")
+    except subprocess.CalledProcessError as e:
+        logger.error(f"❌ Script falló: {nombre}")
+        logger.error(f"🧾 STDOUT:\n{e.stdout}")
+        logger.error(f"🧾 STDERR:\n{e.stderr}")
+        raise
     
     if resultado.returncode != 0:
         print(f"❌ Error en {nombre}:\n{resultado.stderr}")

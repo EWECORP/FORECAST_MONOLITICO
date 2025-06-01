@@ -24,19 +24,12 @@ import sys
 # Determinar la ruta base del proyecto
 BASE_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
 CORE_DIR = os.path.join(BASE_DIR, 'forecast_core')
-#if CORE_DIR not in sys.path:
-# print(CORE_DIR)
 sys.path.insert(0, CORE_DIR)
-
 print("Contenido de sys.path:")
 for path in sys.path:
     print(path)
 
-ENV_PATH = os.environ.get("FORECAST_ENV_PATH", "E:/ETL/FORECAST/.env")  # Toma Producción si está definido, o la ruta por defecto
-
-# print(f"ENV_PART? {ENV_PATH}")
-# print(f"CORE DIR = {CORE_DIR}")
-# Verificar si el archivo .env existe
+ENV_PATH = os.environ.get("FORECAST_ENV_PATH", "/srv/FORECAST/forecast_core/.env")  # Toma Producción si está definido, o la ruta por defecto
 if not os.path.exists(ENV_PATH):
     print(f"El archivo .env no existe en la ruta: {ENV_PATH}")
     print(f"Directorio actual: {os.getcwd()}")
@@ -123,6 +116,11 @@ if __name__ == "__main__":
     try:
         # Ejecuta la rutina completa
         fes = get_execution_execute_by_status(10)
+        
+        if fes is None or fes.empty:
+            print("⚠️ No hay ejecuciones con estado 10 (FORECAST PENDIENTE) para procesar.")
+            sys.exit(0)
+        
         for index, row in fes[fes["fee_status_id"] == 10].iterrows(): # type: ignore
             algoritmo = row["name"]
             name = algoritmo.split('_ALGO')[0]

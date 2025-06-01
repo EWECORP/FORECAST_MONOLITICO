@@ -1,0 +1,21 @@
+[Unit]
+Description=Prefect Worker for Forecast (goldfarb_claro)
+After=network.target
+
+[Service]
+Type=simple
+User=root
+WorkingDirectory=/srv/FORECAST
+Environment="PATH=/srv/FORECAST/venv/bin"
+Environment="PREFECT_API_URL=http://orquestador.connexa-cloud.com:4200/api"
+Environment="ETL_ENV_PATH=/srv/FORECAST/forecast_core/.env"
+Environment="FORECAST_ENV_PATH=/srv/FORECAST/forecast_core/.env"
+
+ExecStart=/srv/FORECAST/venv/bin/prefect worker start --pool goldfarb-claro
+Restart=always
+RestartSec=5
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target
