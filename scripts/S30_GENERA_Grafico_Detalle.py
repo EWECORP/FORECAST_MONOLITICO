@@ -35,9 +35,9 @@ folder = f"{secrets['BASE_DIR']}/{secrets['FOLDER_DATOS']}"
 from funciones_forecast import (
     get_execution_execute_by_status,
     update_execution_execute,
-    generar_grafico_base64,
+    convertir_stock_diario_a_dict,
     Open_Diarco_Data,
-    Open_Postgres_retry,
+    convertir_ofertas_a_dict,
     Close_Connection,
     generar_grafico_json
 )
@@ -159,7 +159,9 @@ def insertar_graficos_forecast(algoritmo, name, id_proveedor):
                 row['Average'],
                 row['ventas_last'],
                 row['ventas_previous'],
-                row['ventas_same_year'] # type: ignore
+                row['ventas_same_year'], # type: ignore
+                convertir_stock_diario_a_dict,
+                convertir_ofertas_a_dict
             )
             row_data = row.to_dict()
             row_data['GRAFICO'] = grafico

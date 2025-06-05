@@ -5,7 +5,7 @@
 # Se mantiene por Compatibilidad con el resto de la aplicación las funciones _OLD
 """
 funciones_forecast.py
-Versión 1.3
+Versión 1.3.2
 
 Este módulo contiene todas las funciones necesarias para:
 - conexión a bases de datos
@@ -13,6 +13,7 @@ Este módulo contiene todas las funciones necesarias para:
 - ejecución de algoritmos de pronóstico (ALGO_01 a ALGO_06)
 - operaciones sobre ejecuciones de forecast
 - Nuevas Funciona JSON y Diccionarios
+- Nuevos JSON Refacctorizado
 - CONFIGURACIÓN DINAMICA desde .env
 
 """
@@ -1826,10 +1827,179 @@ def guardar_grafico_base64(base64_str, path_archivo):
         f.write(base64.b64decode(base64_str))
 
 # BLOQUE AGREGADO PARA INCORPORAR STOCK en formato DICCIONARIO
+# from datetime import date, datetime, timedelta
+
+# def convertir_stock_diario_a_dict(df_stock):
+#     """Convierte df_stock en un diccionario {fecha: cantidad}, solo hasta ayer y con fechas válidas."""
+#     def es_fecha_valida(anio, mes, dia):
+#         try:
+#             return date(anio, mes, dia)
+#         except ValueError:
+#             return None
+
+#     resultado = {}
+#     for _, row in df_stock.iterrows():
+#         anio = int(row['c_anio'])
+#         mes = int(row['c_mes'])
+
+#         for col in df_stock.columns:
+#             if col.startswith("q_dia"):
+#                 dia = int(col.replace("q_dia", ""))
+#                 fecha_valida = es_fecha_valida(anio, mes, dia)
+#                 if fecha_valida and fecha_valida <= (datetime.now().date() - timedelta(days=1)):
+#                     resultado[fecha_valida.isoformat()] = row[col]
+#     return resultado
+
+# # BLOQUE AGREGADO PARA INCORPORAR OFERTAS en formato DICCIONARIO
+# def convertir_ofertas_a_dict(df_ofertas):
+#     """Convierte df_ofertas en un diccionario {fecha: flag}, solo hasta ayer y con fechas válidas."""
+#     def es_fecha_valida(anio, mes, dia):
+#         try:
+#             return date(anio, mes, dia)
+#         except ValueError:
+#             return None
+
+#     resultado = {}
+#     for _, row in df_ofertas.iterrows():
+#         anio = int(row['c_anio'])
+#         mes = int(row['c_mes'])
+
+#         for col in df_ofertas.columns:
+#             if col.startswith("m_oferta_dia"):
+#                 dia = int(col.replace("m_oferta_dia", ""))
+#                 fecha_valida = es_fecha_valida(anio, mes, dia)
+#                 if fecha_valida and fecha_valida <= (datetime.now().date() - timedelta(days=1)):
+#                     resultado[fecha_valida.isoformat()] = row[col]
+#     return resultado
+
+# def generar_grafico_json(dfv, dfs, dfo, articulo, sucursal, Forecast, Average, ventas_last, ventas_previous, ventas_same_year):
+#     fecha_maxima = dfv["Fecha"].max()
+
+#     # Filtrar ventas por artículo y sucursal
+#     df_filtrado = dfv[(dfv["Codigo_Articulo"] == articulo) & (dfv["Sucursal"] == sucursal)]
+#     df_filtrado = df_filtrado[df_filtrado["Fecha"] >= (fecha_maxima - pd.Timedelta(days=50))]
+
+#     # Agrupar SIEMPRE por fecha para evitar duplicados silenciosos
+#     df_filtrado = (
+#         df_filtrado
+#         .groupby("Fecha", as_index=False)
+#         .agg({"Unidades": "sum"})
+#     )
+
+#     df_filtrado = df_filtrado.sort_values("Fecha").reset_index(drop=True)
+
+#     # Media móvil
+#     df_filtrado["Media_Movil"] = df_filtrado["Unidades"].rolling(window=7, min_periods=1).mean().fillna(0)
+#     df_filtrado["Semana"] = df_filtrado["Fecha"].dt.to_period("W").astype(str)
+
+#     # Agregación semanal
+#     df_semanal = df_filtrado.groupby("Semana")["Unidades"].sum().reset_index()
+#     semanas = df_filtrado.groupby("Semana")["Fecha"].min().reset_index()
+#     df_semanal["Semana_Num"] = semanas["Fecha"].dt.isocalendar().week.astype(int)
+#     df_semanal["Media_Movil"] = df_semanal["Unidades"].rolling(window=7, min_periods=1).mean()
+
+#     # Cálculos históricos
+#     fecha_inicio_ultimos30 = fecha_maxima - pd.Timedelta(days=30)
+#     fecha_inicio_previos30 = fecha_inicio_ultimos30 - pd.Timedelta(days=30)
+#     fecha_inicio_anio_anterior = fecha_inicio_ultimos30 - pd.DateOffset(years=1)
+#     fecha_fin_anio_anterior = fecha_inicio_previos30 - pd.DateOffset(years=1)
+
+#     ventas_ultimos_30 = float(df_filtrado[df_filtrado["Fecha"] > fecha_inicio_ultimos30]["Unidades"].sum())
+#     ventas_previos_30 = float(
+#         df_filtrado[
+#             (df_filtrado["Fecha"] > fecha_inicio_previos30) &
+#             (df_filtrado["Fecha"] <= fecha_inicio_ultimos30)
+#         ]["Unidades"].sum()
+#     )
+
+#     df_filtrado_anio_anterior = df_filtrado.copy()
+#     df_filtrado_anio_anterior["Fecha"] = df_filtrado_anio_anterior["Fecha"] - pd.DateOffset(years=1)
+#     ventas_mismo_periodo_anio_anterior = float(
+#         df_filtrado_anio_anterior[
+#             (df_filtrado_anio_anterior["Fecha"] > fecha_inicio_anio_anterior) &
+#             (df_filtrado_anio_anterior["Fecha"] <= fecha_fin_anio_anterior)
+#         ]["Unidades"].sum()
+#     )
+
+#     # STOCK
+#     dfs["c_articulo"] = dfs["c_articulo"].astype(int)
+#     dfs["c_sucu_empr"] = dfs["c_sucu_empr"].astype(int)   
+#     dfs_filtrado = dfs[(dfs["c_articulo"] == articulo) & (dfs["c_sucu_empr"] == sucursal)]
+#     datos_stock = convertir_stock_diario_a_dict(dfs_filtrado)
+    
+#     # OFERTAS
+#     dfo["c_articulo"] = dfo["c_articulo"].astype(int)
+#     dfo["c_sucu_empr"] = dfo["c_sucu_empr"].astype(int)   
+#     dfo_filtrado = dfo[(dfo["c_articulo"] == articulo) & (dfo["c_sucu_empr"] == sucursal)]
+#     datos_ofertas = convertir_ofertas_a_dict(dfo_filtrado)
+
+#     return {
+#         "articulo": int(articulo),
+#         "sucursal": int(sucursal),
+#         "fechas": df_filtrado["Fecha"].dt.strftime("%Y-%m-%d").tolist(),
+#         "unidades": [float(x) for x in df_filtrado["Unidades"]],
+#         "media_movil": [float(x) for x in df_filtrado["Media_Movil"]],
+#         "semana_num": df_semanal["Semana_Num"].astype(int).tolist(),
+#         "ventas_semanales": [float(x) for x in df_semanal["Unidades"]],
+#         "forecast": float(Forecast),
+#         "ventas_last": float(ventas_last),
+#         "ventas_previous": float(ventas_previous),
+#         "ventas_same_year": float(ventas_same_year),
+#         "average": float(Average),
+#         "ventas_ultimos_30": float(ventas_ultimos_30),
+#         "ventas_previos_30": float(ventas_previos_30),
+#         "ventas_anio_anterior": float(ventas_mismo_periodo_anio_anterior),
+#         "stock_diario": datos_stock,
+#         "ofertas_diarias": datos_ofertas
+#     }
+# REFACTORIZAR FUNCION y AGREGAR DICCIONARIO MENSUAL
+import pandas as pd
+import numpy as np
 from datetime import date, datetime, timedelta
 
+def filtrar_ventas_recientes(dfv, articulo, sucursal, dias=50):
+    fecha_maxima = dfv["Fecha"].max()
+    df_filtrado = dfv[(dfv["Codigo_Articulo"] == articulo) & (dfv["Sucursal"] == sucursal)]
+    df_filtrado = df_filtrado[df_filtrado["Fecha"] >= (fecha_maxima - pd.Timedelta(days=dias))]
+    return df_filtrado.sort_values("Fecha").reset_index(drop=True), fecha_maxima
+
+def calcular_media_movil(df, ventana=7):
+    df["Media_Movil"] = df["Unidades"].rolling(window=ventana, min_periods=1).mean().fillna(0)
+    df["Semana"] = df["Fecha"].dt.to_period("W").astype(str)
+    return df
+
+def agregar_ventas_semanales(df):
+    df_semanal = df.groupby("Semana")[["Unidades"]].sum().reset_index()
+    semanas = df.groupby("Semana")["Fecha"].min().reset_index()
+    df_semanal["Semana_Num"] = semanas["Fecha"].dt.isocalendar().week.astype(int)
+    df_semanal["Media_Movil"] = df_semanal["Unidades"].rolling(window=3, min_periods=1).mean()
+    return df_semanal
+
+def calcular_metricas_temporales(df, fecha_maxima):
+    f30 = fecha_maxima - pd.Timedelta(days=30)
+    f60 = f30 - pd.Timedelta(days=30)
+    f30_aa = f30 - pd.DateOffset(years=1)
+    f60_aa = f60 - pd.DateOffset(years=1)
+
+    ultimos_30 = float(df[df["Fecha"] > f30]["Unidades"].sum())
+    previos_30 = float(df[(df["Fecha"] > f60) & (df["Fecha"] <= f30)]["Unidades"].sum())
+
+    df_anio_ant = df.copy()
+    df_anio_ant["Fecha"] = df_anio_ant["Fecha"].apply(lambda x: x - pd.DateOffset(years=1))
+    mismo_aa = float(df_anio_ant[(df_anio_ant["Fecha"] > f30_aa) & (df_anio_ant["Fecha"] <= f60_aa)]["Unidades"].sum())
+
+    return ultimos_30, previos_30, mismo_aa
+
+def calcular_ventas_mensuales_anio(dfv, articulo, sucursal, fecha_maxima):
+    fecha_inicio_anio = fecha_maxima - pd.DateOffset(months=12)
+    df_anual = dfv[(dfv["Codigo_Articulo"] == articulo) &
+                   (dfv["Sucursal"] == sucursal) &
+                   (dfv["Fecha"] >= fecha_inicio_anio)].copy()
+    df_anual["Mes"] = df_anual["Fecha"].dt.to_period("M").astype(str)
+    ventas_mensuales = df_anual.groupby("Mes")["Unidades"].sum().reset_index()
+    return {str(row["Mes"]): float(row["Unidades"]) for _, row in ventas_mensuales.iterrows()}
+
 def convertir_stock_diario_a_dict(df_stock):
-    """Convierte df_stock en un diccionario {fecha: cantidad}, solo hasta ayer y con fechas válidas."""
     def es_fecha_valida(anio, mes, dia):
         try:
             return date(anio, mes, dia)
@@ -1840,7 +2010,6 @@ def convertir_stock_diario_a_dict(df_stock):
     for _, row in df_stock.iterrows():
         anio = int(row['c_anio'])
         mes = int(row['c_mes'])
-
         for col in df_stock.columns:
             if col.startswith("q_dia"):
                 dia = int(col.replace("q_dia", ""))
@@ -1849,9 +2018,7 @@ def convertir_stock_diario_a_dict(df_stock):
                     resultado[fecha_valida.isoformat()] = row[col]
     return resultado
 
-# BLOQUE AGREGADO PARA INCORPORAR OFERTAS en formato DICCIONARIO
 def convertir_ofertas_a_dict(df_ofertas):
-    """Convierte df_ofertas en un diccionario {fecha: flag}, solo hasta ayer y con fechas válidas."""
     def es_fecha_valida(anio, mes, dia):
         try:
             return date(anio, mes, dia)
@@ -1862,7 +2029,6 @@ def convertir_ofertas_a_dict(df_ofertas):
     for _, row in df_ofertas.iterrows():
         anio = int(row['c_anio'])
         mes = int(row['c_mes'])
-
         for col in df_ofertas.columns:
             if col.startswith("m_oferta_dia"):
                 dia = int(col.replace("m_oferta_dia", ""))
@@ -1871,66 +2037,30 @@ def convertir_ofertas_a_dict(df_ofertas):
                     resultado[fecha_valida.isoformat()] = row[col]
     return resultado
 
-def generar_grafico_json(dfv, dfs, dfo, articulo, sucursal, Forecast, Average, ventas_last, ventas_previous, ventas_same_year):
-    fecha_maxima = dfv["Fecha"].max()
-
-    # Filtrar ventas por artículo y sucursal
-    df_filtrado = dfv[(dfv["Codigo_Articulo"] == articulo) & (dfv["Sucursal"] == sucursal)]
-    df_filtrado = df_filtrado[df_filtrado["Fecha"] >= (fecha_maxima - pd.Timedelta(days=50))]
-
-    # Agrupar SIEMPRE por fecha para evitar duplicados silenciosos
-    df_filtrado = (
-        df_filtrado
-        .groupby("Fecha", as_index=False)
-        .agg({"Unidades": "sum"})
-    )
-
-    df_filtrado = df_filtrado.sort_values("Fecha").reset_index(drop=True)
-
-    # Media móvil
-    df_filtrado["Media_Movil"] = df_filtrado["Unidades"].rolling(window=7, min_periods=1).mean().fillna(0)
-    df_filtrado["Semana"] = df_filtrado["Fecha"].dt.to_period("W").astype(str)
-
-    # Agregación semanal
-    df_semanal = df_filtrado.groupby("Semana")["Unidades"].sum().reset_index()
-    semanas = df_filtrado.groupby("Semana")["Fecha"].min().reset_index()
-    df_semanal["Semana_Num"] = semanas["Fecha"].dt.isocalendar().week.astype(int)
-    df_semanal["Media_Movil"] = df_semanal["Unidades"].rolling(window=7, min_periods=1).mean()
-
-    # Cálculos históricos
-    fecha_inicio_ultimos30 = fecha_maxima - pd.Timedelta(days=30)
-    fecha_inicio_previos30 = fecha_inicio_ultimos30 - pd.Timedelta(days=30)
-    fecha_inicio_anio_anterior = fecha_inicio_ultimos30 - pd.DateOffset(years=1)
-    fecha_fin_anio_anterior = fecha_inicio_previos30 - pd.DateOffset(years=1)
-
-    ventas_ultimos_30 = float(df_filtrado[df_filtrado["Fecha"] > fecha_inicio_ultimos30]["Unidades"].sum())
-    ventas_previos_30 = float(
-        df_filtrado[
-            (df_filtrado["Fecha"] > fecha_inicio_previos30) &
-            (df_filtrado["Fecha"] <= fecha_inicio_ultimos30)
-        ]["Unidades"].sum()
-    )
-
-    df_filtrado_anio_anterior = df_filtrado.copy()
-    df_filtrado_anio_anterior["Fecha"] = df_filtrado_anio_anterior["Fecha"] - pd.DateOffset(years=1)
-    ventas_mismo_periodo_anio_anterior = float(
-        df_filtrado_anio_anterior[
-            (df_filtrado_anio_anterior["Fecha"] > fecha_inicio_anio_anterior) &
-            (df_filtrado_anio_anterior["Fecha"] <= fecha_fin_anio_anterior)
-        ]["Unidades"].sum()
-    )
-
-    # STOCK
+def preparar_stock_y_ofertas(dfs, dfo, articulo, sucursal, convertir_stock, convertir_ofertas):
     dfs["c_articulo"] = dfs["c_articulo"].astype(int)
-    dfs["c_sucu_empr"] = dfs["c_sucu_empr"].astype(int)   
-    dfs_filtrado = dfs[(dfs["c_articulo"] == articulo) & (dfs["c_sucu_empr"] == sucursal)]
-    datos_stock = convertir_stock_diario_a_dict(dfs_filtrado)
-    
-    # OFERTAS
+    dfs["c_sucu_empr"] = dfs["c_sucu_empr"].astype(int)
+    stock = convertir_stock(dfs[(dfs["c_articulo"] == articulo) & (dfs["c_sucu_empr"] == sucursal)])
+
     dfo["c_articulo"] = dfo["c_articulo"].astype(int)
-    dfo["c_sucu_empr"] = dfo["c_sucu_empr"].astype(int)   
-    dfo_filtrado = dfo[(dfo["c_articulo"] == articulo) & (dfo["c_sucu_empr"] == sucursal)]
-    datos_ofertas = convertir_ofertas_a_dict(dfo_filtrado)
+    dfo["c_sucu_empr"] = dfo["c_sucu_empr"].astype(int)
+    ofertas = convertir_ofertas(dfo[(dfo["c_articulo"] == articulo) & (dfo["c_sucu_empr"] == sucursal)])
+
+    return stock, ofertas
+
+def generar_grafico_json(dfv, dfs, dfo, articulo, sucursal, Forecast, Average,
+                          ventas_last, ventas_previous, ventas_same_year,
+                          convertir_stock_diario_a_dict, convertir_ofertas_a_dict):
+
+    df_filtrado, fecha_maxima = filtrar_ventas_recientes(dfv, articulo, sucursal)
+    df_filtrado = df_filtrado.groupby("Fecha", as_index=False).agg({"Unidades": "sum"})
+    df_filtrado = calcular_media_movil(df_filtrado)
+    df_semanal = agregar_ventas_semanales(df_filtrado)
+    v30, vprev, vaanterior = calcular_metricas_temporales(df_filtrado, fecha_maxima)
+    ventas_mensuales = calcular_ventas_mensuales_anio(dfv, articulo, sucursal, fecha_maxima)
+    stock, ofertas = preparar_stock_y_ofertas(dfs, dfo, articulo, sucursal,
+                                              convertir_stock_diario_a_dict,
+                                              convertir_ofertas_a_dict)
 
     return {
         "articulo": int(articulo),
@@ -1945,16 +2075,13 @@ def generar_grafico_json(dfv, dfs, dfo, articulo, sucursal, Forecast, Average, v
         "ventas_previous": float(ventas_previous),
         "ventas_same_year": float(ventas_same_year),
         "average": float(Average),
-        "ventas_ultimos_30": float(ventas_ultimos_30),
-        "ventas_previos_30": float(ventas_previos_30),
-        "ventas_anio_anterior": float(ventas_mismo_periodo_anio_anterior),
-        "stock_diario": datos_stock,
-        "ofertas_diarias": datos_ofertas
+        "ventas_ultimos_30": v30,
+        "ventas_previos_30": vprev,
+        "ventas_anio_anterior": vaanterior,
+        "stock_diario": stock,
+        "ofertas_diarias": ofertas,
+        "ventas_mensuales": ventas_mensuales
     }
-
-
-import json
-import numpy as np
 
 def convertir_json(obj):
     if isinstance(obj, (np.integer, int)):
