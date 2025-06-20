@@ -1,0 +1,371 @@
+-- DESDE MAESTRO ARTICULOS DATOS LOGÍSTICOS
+
+SELECT TOP 100 C_ARTICULO,N_ARTICULO, Q_PESO_UNIT_ART, M_VENDE_POR_PESO, C_UNIDAD_MEDIDA, T2.D_CODIGO, C_CLASIFICACION_COMPRA, C_COMPRADOR
+		      ,C_EAN,  C_DUN14, [C_EAN_ALTERNATIVO_1]
+      ,[C_EAN_ALTERNATIVO_2]
+      ,[C_EAN_ALTERNATIVO_3]
+      ,[C_EAN_ALTERNATIVO_4]
+	  ,[C_PROVEEDOR_PRIMARIO]
+	  ,[M_A_DAR_DE_BAJA]
+	  ,[F_BAJA]
+
+  FROM [DIARCOP001].[DiarcoP].[dbo].[T050_ARTICULOS] T1,
+	  [DIARCOP001].[DiarcoP].[dbo].[T001_TABLA_CODIGO] T2
+WHERE	  T1.C_UNIDAD_MEDIDA = T2.C_CODIGO_TABLA
+AND	  T2.C_TABLA = 79
+
+AND [C_PROVEEDOR_PRIMARIO] = '8443'
+GO
+SELECT TOP 100 
+    T1.C_ARTICULO, 
+    T1.N_ARTICULO, 
+    T1.Q_PESO_UNIT_ART, 
+    T1.M_VENDE_POR_PESO, 
+    T1.C_UNIDAD_MEDIDA, 
+    T2.D_CODIGO, 
+    T1.C_CLASIFICACION_COMPRA, 
+    T1.C_COMPRADOR, 
+    T1.C_EAN,  
+    T1.C_DUN14, 
+    T1.C_EAN_ALTERNATIVO_1, 
+    T1.C_EAN_ALTERNATIVO_2, 
+    T1.C_EAN_ALTERNATIVO_3, 
+    T1.C_EAN_ALTERNATIVO_4, 
+    T1.C_PROVEEDOR_PRIMARIO, 
+    T1.M_A_DAR_DE_BAJA, 
+    T1.F_BAJA
+FROM [DIARCOP001].[DiarcoP].[dbo].[T050_ARTICULOS] T1
+INNER JOIN [DIARCOP001].[DiarcoP].[dbo].[T001_TABLA_CODIGO] T2 
+    ON T1.C_UNIDAD_MEDIDA = T2.C_CODIGO_TABLA
+WHERE T2.C_TABLA = 79
+AND T1.C_PROVEEDOR_PRIMARIO = '8443';
+
+
+--- TIPOS DE UNIDADES
+
+SELECT * from [DIARCOP001].[DiarcoP].[dbo].[T001_TABLA_CODIGO] WHERE C_TABLA = 79
+
+--- ARTICULOS EAN ( Lo usan para el EAN de EDI -- que aveces difiere del de la línea de cajas
+SELECT TOP 100 [C_ARTICULO]
+      ,[C_EAN]
+  FROM [DIARCOP001].[DiarcoP].[dbo].[T085_ARTICULOS_EAN_EDI]
+GO
+
+--- ARTICULO SUCURSAL
+
+ SELECT top 100 [C_ARTICULO]
+      ,[C_SUCU_EMPR]	  
+      ,[Q_FACTOR_VTA_SUCU]
+	  ,[M_HABILITADO_SUCU]
+      ,[M_DEVOLUCION_SUCU]
+	  ,[Lugar_Abastecimiento]
+      ,[M_COSTO_LOGISTICO]  --- Esto habilita que el costo de una sucursal no sea menor uqe el Base 2 + Costo envio de Ferrara
+	  ,[U_SEMANA_ULT_CARGA_COMPETENCIA]
+	  ,*
+  FROM [DIARCOP001].[DiarcoP].[dbo].[T051_ARTICULOS_SUCURSAL]
+
+  --- DIAS DEFINIDOS STOCK Y SOBRESTOCK
+  SELECT top 100 [C_SUCU_EMPR],*
+      --,[C_CLAISIFICACION_COMPRA]  --- Es la misma que en Artículo
+      ,[C_FAMILIA]
+      ,[C_RUBRO]
+      ,[Q_DIAS_STOCK]
+      ,[Q_DIAS_SOBRE_STOCK]
+  FROM [DIARCOP001].[DiarcoP].[dbo].[T055_ARTICULOS_PARAM_STOCK]
+GO
+
+
+--- LEAD TIME DESDE BASE2
+SELECT TOP 100 [C_PROVEEDOR]
+      ,[C_SUCURSAL]
+      ,[DIAS_ENTREGA]
+  FROM [DIARCOP001].[DiarcoP].[dbo].[T055_LEAD_TIME_B2_SUCURSALES]
+
+
+  --- LEAD TIME PROVEEDOR MAS MINIMOS DE COMPRA y DIAS DE PEDIDO Y DE ENTREGA
+SELECT TOP 100 C_PROVEEDOR, C_SUCU_EMPR, Q_BULTOS_KILOS_COMPRA_MINIMA	
+FROM	  [DIARCOP001].[DiarcoP].[dbo].[T020_PROVEEDOR_DIAS_ENTREGA_DETA]
+WHERE C_PROVEEDOR = '190'
+AND C_SUCU_EMPR = 2
+
+
+  ---ARTICULOS COMPRADOR / PROVEEDOR
+  SELECT TOP 100 [C_COMPRADOR]
+      ,[C_PROVEEDOR]
+      ,[C_ARTICULO]
+  FROM [DIARCOP001].[DiarcoP].[dbo].[T059_ARTICULOS_COMPRADOR]
+GO
+
+
+-- DATOS LOGISTICOS ARTICULOS, (BASE, ALTURA Y BULTOS DEL PROVEEDOR)
+SELECT TOP 100 [C_ARTICULO]
+      ,[C_PROVEEDOR]
+      ,[Q_FACTOR_PROVEEDOR]
+      ,[U_PISO_PALETIZADO]
+      ,[U_ALTURA_PALETIZADO]
+	  ,*
+  FROM [DIARCOP001].[DiarcoP].[dbo].[T052_ARTICULOS_PROVEEDOR]
+
+
+
+  --- CODIGOS DE TABLAS Y OPCIONES DE PARÄMETROS
+  --- 79 = UNIDADES DE MEDIDA (Sin UM, Gramos, Kilo, Mililitro, Litro, Metro2, Unidades, Cm3)
+  --- 36 = ORDEN DE COMPRA
+  --- 119 = CLASIFICACIÓN COMPRAS (Sensibles, Resto Top, Variedas Extra, a remover, Sin venta, Sensible PM)
+  --- 20 = TIPOS DE PROVEEDOR ( Mercaderias, Gastos, Servicios, OK) (1-4)
+  SELECT *
+  FROM [DIARCOP001].[DiarcoP].[dbo].T000_MAE_TABLAS
+  ORDER BY 2
+
+  SELECT *
+  FROM [DIARCOP001].[DiarcoP].[dbo].T001_TABLA_CODIGO
+  WHERE C_TABLA = 20
+
+
+
+  --- FORMA DE CALCULAR VENTA Y UNIDADES/KGS
+  SELECT C_ARTICULO, SUM(DBO.SUMO_RESTO_FACTURAS_VENTA(I_PRECIO_UNIT_NETO * CASE WHEN M_VENDE_POR_PESO  = 'N' THEN Q_BULTOS_GRAMOS * Q_FACTOR_PZAS ELSE Q_BULTOS_GRAMOS / 1000 END, C_DOC)) AS  VEMTA,
+			  SUM(DBO.SUMO_RESTO_FACTURAS_VENTA(CASE WHEN M_VENDE_POR_PESO  = 'N' THEN Q_BULTOS_GRAMOS * Q_FACTOR_PZAS ELSE Q_BULTOS_GRAMOS / 1000 END, C_DOC)) AS UNIDADES_KGS
+  FROM  T231_COMPROBANTES_DETA
+  WHERE C_ARTICULO IN (7219, 42731)
+  GROUP BY C_ARTICULO
+
+
+  --- FROMA DE CALCULAR VENTA Y UNIDADES SIN UTILIZAR FUNCION, LUEGO SE DEBE RESTAR FACTURAS Y DEBITOS MENOS CREDITOS
+  SELECT C_ARTICULO, C_DOC, SUM(I_PRECIO_UNIT_NETO * CASE WHEN M_VENDE_POR_PESO  = 'N' THEN Q_BULTOS_GRAMOS * Q_FACTOR_PZAS ELSE Q_BULTOS_GRAMOS / 1000 END) AS  VEMTA,
+			  SUM(CASE WHEN M_VENDE_POR_PESO  = 'N' THEN Q_BULTOS_GRAMOS * Q_FACTOR_PZAS ELSE Q_BULTOS_GRAMOS / 1000 END) AS UNIDADES_KGS
+  FROM  [DIARCOP001].[DiarcoP].[dbo].T231_COMPROBANTES_DETA
+  WHERE C_ARTICULO IN (7219, 42731)
+  GROUP BY C_ARTICULO,  C_DOC
+
+
+/**** DATOS DE VENTAS PARA COMPRADOR INTELIGENTE  *****
+  --- CORRER EN SERVIDOR 192.168.0.250
+  --- ESTADISTICA ACUMULADA DIARIA CORTADA POR ARTICULO, SUCURSAL Y PRECIO
+  --- En el servidor [DCO-DBCORE-P02] USE DiarcoEst
+
+******************************************************/
+
+SELECT TOP 100  *
+FROM [DCO-DBCORE-P02].[DiarcoEst].[dbo].[T710_ESTADIS_PRECIOS_BK]
+[dbo].[T710_ESTADIS_PRECIOS]
+
+
+.[dbo].[T201_CLIENTE]
+
+[dbo].[T702_EST_VTAS_POR_ARTICULO]
+[dbo].[T020_PROVEEDOR]
+
+
+--- EN T710-EST-REPOsición todo esta en Bultos
+Sugerido SGM -- Hay que multimplicar poro Q_FACTOR EMPRE
+Ventas 15 Dias -- en bultos
+Ventas 30 Dias --- en bultos
+Venta Diaria -- en bultos
+
+--- ARCITULOS ACTIVOS PARA FORECAST x PROVEEDOR
+
+DECLARE @proveedor INT = 327; -- Definir la variable correctamente
+
+SELECT TOP 100 A.[C_PROVEEDOR_PRIMARIO]
+	  ,S.[C_ARTICULO]
+      ,S.[C_SUCU_EMPR]
+      ,S.[Q_FACTOR_VENTA_ESP]
+      ,S.[Q_FACTOR_VTA_SUCU]
+      ,S.[M_OFERTA_SUCU]
+      ,S.[M_HABILITADO_SUCU]
+	  ,A.M_BAJA
+      ,S.[Q_VTA_DIA_ANT]
+      ,S.[Q_VTA_ACUM]
+      ,S.[Q_ULT_ING_STOCK]
+      ,S.[Q_STOCK_A_ULT_ING]
+      ,S.[Q_15DIASVTA_A_ULT_ING_STOCK]
+      ,S.[Q_30DIASVTA_A_ULT_ING_STOCK]
+      ,S.[Q_BULTOS_PENDIENTE_OC]
+      ,S.[Q_PESO_PENDIENTE_OC]
+      ,S.[Q_UNID_PESO_PEND_RECEP_TRANSF]
+      ,S.[Q_UNID_PESO_VTA_MES_ACTUAL]
+      ,S.[F_ULTIMA_VTA]
+      ,S.[Q_VTA_ULTIMOS_15DIAS]
+      ,S.[Q_VTA_ULTIMOS_30DIAS]
+      ,S.[Q_TRANSF_PEND]
+      ,S.[Q_TRANSF_EN_PREP]
+      ,S.[M_FOLDER]
+      ,S.[M_ALTA_RENTABILIDAD]
+      ,S.[Lugar_Abastecimiento]
+      ,S.[M_COSTO_LOGISTICO]
+	  ,A.[N_ARTICULO]
+	  ,A.[C_FAMILIA]
+	  ,A.[C_RUBRO]
+	  ,P.[Q_DIAS_STOCK]
+	  ,P.[Q_DIAS_SOBRE_STOCK]
+ 
+ FROM [DIARCOP001].[DiarcoP].[dbo].[T051_ARTICULOS_SUCURSAL] S
+ LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T050_ARTICULOS] A
+	ON A.[C_ARTICULO] = S.[C_ARTICULO]
+LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T055_ARTICULOS_PARAM_STOCK] P
+	ON S.[C_SUCU_EMPR] = P.[C_SUCU_EMPR]
+	AND A.[C_FAMILIA] =P.[C_FAMILIA]
+
+
+ WHERE S.[M_HABILITADO_SUCU] = 'S' -- Permitido Reponer
+	AND A.M_BAJA = 'N'  -- Activo en Maestro Artículos
+	AND A.[C_PROVEEDOR_PRIMARIO] = @proveedor -- Solo del Proveedor
+ 
+GO
+
+
+
+  --- DIAS DEFINIDOS STOCK Y SOBRESTOCK
+  SELECT top 100 [C_SUCU_EMPR]
+      --  --- Es la misma que en Artículo
+      ,[C_FAMILIA]
+      ,[C_RUBRO]
+	  ,[C_CLAISIFICACION_COMPRA]
+      ,[Q_DIAS_STOCK]
+      ,[Q_DIAS_SOBRE_STOCK]
+  FROM [DIARCOP001].[DiarcoP].[dbo].[T055_ARTICULOS_PARAM_STOCK]
+
+SELECT TOP 100 * FROM [DIARCOP001].[DiarcoP].[dbo].[T050_ARTICULOS]
+
+
+--- COMPRADORES HABILITADOS A COMPRAR
+
+SELECT TOP (1000) [C_PROVEEDOR]
+      ,[C_CUIT]
+      ,[C_USUARIO]
+  FROM [DiarcoP].[dbo].[T020_PROVEEDOR_GESTION_COMPRA]
+  WHERE C_USUARIO IN ('rfrutos', 'rgarfi', 'sbasconcel', 'lcrapanzan')
+   AND C_PROVEEDOR IN(  1074, 140)
+
+-- LISTA DE COMPRADORES
+
+SELECT TOP 100 [C_COMPRADOR]
+      ,[N_COMPRADOR]
+      ,[N_COMPRADOR_ABREV]
+      ,[C_SUCU_COMPRADOR]
+      ,[F_MODIF]
+      ,[M_BAJA]
+      ,[C_USUARIO]
+  FROM [DIARCOP001].[DiarcoP].[dbo].[T117_COMPRADORES]
+
+/***  CAPTURA DE VENtAS ****/
+
+
+-- FILTRA solo PRODUCTOS HABILITADOS y Traer datos de STOCK y PENDIENTES desde PRODUCCIÓN
+        SELECT  A.[C_PROVEEDOR_PRIMARIO]
+            ,S.[C_ARTICULO]
+            ,S.[C_SUCU_EMPR]
+            ,S.[Q_FACTOR_VENTA_ESP]
+            ,S.[Q_FACTOR_VTA_SUCU]
+            ,S.[M_OFERTA_SUCU]
+            ,S.[M_HABILITADO_SUCU]
+            ,A.M_BAJA
+            ,S.[Q_VTA_DIA_ANT]
+            ,S.[Q_VTA_ACUM]
+            ,S.[Q_ULT_ING_STOCK]
+            ,S.[Q_STOCK_A_ULT_ING]
+            ,S.[Q_15DIASVTA_A_ULT_ING_STOCK]
+            ,S.[Q_30DIASVTA_A_ULT_ING_STOCK]
+            ,S.[Q_BULTOS_PENDIENTE_OC]
+            ,S.[Q_PESO_PENDIENTE_OC]
+            ,S.[Q_UNID_PESO_PEND_RECEP_TRANSF]
+            ,S.[Q_UNID_PESO_VTA_MES_ACTUAL]
+            ,S.[F_ULTIMA_VTA]
+            ,S.[Q_VTA_ULTIMOS_15DIAS]
+            ,S.[Q_VTA_ULTIMOS_30DIAS]
+            ,S.[Q_TRANSF_PEND]
+            ,S.[Q_TRANSF_EN_PREP]
+            ,S.[M_FOLDER]
+            ,S.[M_ALTA_RENTABILIDAD]
+            ,S.[Lugar_Abastecimiento]
+            ,S.[M_COSTO_LOGISTICO]
+            ,A.[N_ARTICULO]
+        
+        FROM [DIARCOP001].[DiarcoP].[dbo].[T051_ARTICULOS_SUCURSAL] S
+        LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T050_ARTICULOS] A
+            ON A.[C_ARTICULO] = S.[C_ARTICULO]
+
+        WHERE S.[M_HABILITADO_SUCU] = 'S' -- Permitido Reponer
+            AND A.M_BAJA = 'N'  -- Activo en Maestro Artículos
+            AND A.[C_PROVEEDOR_PRIMARIO] = {id_proveedor} -- Solo del Proveedor
+        ;
+   SELECT V.[F_VENTA] as Fecha
+            ,V.[C_ARTICULO] as Codigo_Articulo
+            ,V.[C_SUCU_EMPR] as Sucursal
+            ,V.[I_PRECIO_VENTA] as Precio
+            ,V.[I_PRECIO_COSTO] as Costo
+            ,V.[Q_UNIDADES_VENDIDAS] as Unidades
+            ,V.[C_FAMILIA] as Familia
+            ,A.[C_RUBRO] as Rubro
+            ,A.[C_SUBRUBRO_1] as SubRubro
+            ,LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(A.N_ARTICULO, CHAR(9), ''), CHAR(13), ''), CHAR(10), ''))) as Nombre_Articulo
+            ,A.[C_CLASIFICACION_COMPRA] as Clasificacion
+        FROM [DCO-DBCORE-P02].[DiarcoEst].[dbo].[T702_EST_VTAS_POR_ARTICULO] V
+        LEFT JOIN [DCO-DBCORE-P02].[DiarcoEst].[dbo].[T050_ARTICULOS] A 
+            ON V.C_ARTICULO = A.C_ARTICULO
+        WHERE A.[C_PROVEEDOR_PRIMARIO] = {id_proveedor} AND V.F_VENTA >= '20210101' AND A.M_BAJA ='N'
+        ORDER BY V.F_VENTA ;
+   //*****
+   INSERT INTO [DIARCOP001].[DiarcoP].[dbo].[T080_OC_PRECARGA_KIKKER]
+           ([C_PROVEEDOR]
+           ,[C_ARTICULO]
+           ,[C_SUCU_EMPR]
+           ,[Q_BULTOS_KILOS_DIARCO]
+           ,[F_ALTA_SIST]
+           ,[C_USUARIO_GENERO_OC]
+           ,[C_TERMINAL_GENERO_OC]
+           ,[F_GENERO_OC]
+           ,[C_USUARIO_BLOQUEO]
+           ,[M_PROCESADO]
+           ,[F_PROCESADO]
+           ,[U_PREFIJO_OC]
+           ,[U_SUFIJO_OC]
+           ,[C_COMPRA_KIKKER]
+           ,[C_USUARIO_MODIF]
+           ,[C_COMPRADOR])
+     VALUES
+           (<C_PROVEEDOR, numeric,>
+           ,<C_ARTICULO, numeric,>
+           ,<C_SUCU_EMPR, numeric,>
+           ,<Q_BULTOS_KILOS_DIARCO, numeric,>
+           ,<F_ALTA_SIST, datetime,>
+           ,<C_USUARIO_GENERO_OC, char,>
+           ,<C_TERMINAL_GENERO_OC, char,>
+           ,<F_GENERO_OC, datetime,>
+           ,<C_USUARIO_BLOQUEO, char,>
+           ,<M_PROCESADO, char,>
+           ,<F_PROCESADO, datetime,>
+           ,<U_PREFIJO_OC, numeric,>
+           ,<U_SUFIJO_OC, numeric,>
+           ,<C_COMPRA_KIKKER, char,>
+           ,<C_USUARIO_MODIF, char,>
+           ,<C_COMPRADOR, numeric,>)
+GO
+
+
+
+INSERT INTO [DIARCOP001].[DiarcoP].[dbo].[T080_OC_KIKKER_PEND_AUTORIZACION]
+           ([U_PREFIJO_OC]
+           ,[U_SUFIJO_OC])
+     VALUES
+           (<U_PREFIJO_OC, numeric,>
+           ,<U_SUFIJO_OC, numeric,>)
+GO
+
+
+
+***//
+
+USE  [DIARCOP001].[DiarcoP]
+GO
+
+SELECT TOP 100 * from [DIARCOP001].[DiarcoP].[dbo].[T081_OC_DETA_LOG_KIKKER]
+--WHERE F_SITUAC > '2020-01-01'
+
+SELECT TOP 100 * from [DIARCOP001].[DiarcoP].[dbo].[_KIKKER_LEAD_TIME_B2]   -- Tiempo de Entrega desde CD Mercado Central
+SELECT TOP 100 * from [DIARCOP001].[DiarcoP].[dbo].[_KIKKER_PARAMETROS_COMPRA_MINIMA_NOBORRAR]
+SELECT TOP 100 * from [DIARCOP001].[DiarcoP].[dbo].[_KIKKER_SISTEMATICA_NOBORRAR]
+SELECT TOP 100 * from [DIARCOP001].[DiarcoP].[dbo].[_KIKKER_T055_ARTICULOS_PROVEEDOR_DIAS_ENTREGA]
+SELECT TOP 100 * from [DIARCOP001].[DiarcoP].[dbo].[T050_ARTICULOS]
+SELECT TOP 100 * from [DIARCOP001].[DiarcoP].[dbo].[T080_OC_PRECARGA_KIKKER]

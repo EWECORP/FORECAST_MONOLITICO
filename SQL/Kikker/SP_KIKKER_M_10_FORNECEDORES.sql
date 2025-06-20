@@ -1,0 +1,38 @@
+USE [kikker]
+GO
+
+/****** Object:  StoredProcedure [dbo].[SP_KIKKER_M_10_FORNECEDORES]    Script Date: 19/06/2025 15:37:43 ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+CREATE PROCEDURE  [dbo].[SP_KIKKER_M_10_FORNECEDORES]
+AS
+BEGIN
+SET NOCOUNT ON;
+/*
+COD_FORNECEDOR - Código do fornecedor
+NOME_FORNECEDOR - Nome do fornecedor
+FREQUENCIA_VISITA - (Optativo) Frequência de Visitas do fornecedor em dias
+*/
+	
+	--DECLARE PROOVEDORES CURSOR
+	--FOR
+	select 'COD_FORNECEDOR','NOME_FORNECEDOR','FREQUENCIA_VISITA'
+	UNION ALL
+	SELECT
+	CONVERT(VARCHAR(10),ISNULL(TPROV.C_PROVEEDOR,0)),
+	DBO.[NORMALIZA_STRING](TPROV.N_PROVEEDOR),
+	''
+	FROM [DIARCOP001].[DiarcoP].dbo.T020_PROVEEDOR TPROV
+	WHERE c_proveedor not in (1,10)
+	union all
+	select '41CD','BASE II','';
+
+END;
+
+GO
+
+

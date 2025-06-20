@@ -204,7 +204,7 @@ def ejecutar_configuracion():
 # === INTERFAZ GRÁFICA ===
 root = ttk.Window(themename="cerculean")
 root.title("Configurador de Ejecución de Pronóstico")
-root.geometry("650x700")
+root.geometry("650x900")
 root.resizable(False, False)
 
 id_valor = tk.StringVar()

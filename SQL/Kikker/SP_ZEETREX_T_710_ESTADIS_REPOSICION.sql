@@ -1,0 +1,52 @@
+USE [kikker]
+GO
+
+/****** Object:  StoredProcedure [dbo].[SP_ZEETREX_T_710_ESTADIS_REPOSICION]    Script Date: 19/06/2025 15:55:39 ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+
+CREATE PROCEDURE [dbo].[SP_ZEETREX_T_710_ESTADIS_REPOSICION]
+AS 
+/*
+Genera HEADER con los campos
+Transforma en STRING todos los campos
+Trae Tabla estadística de Reposición calculada por SGM
+*/
+begin 
+SET NOCOUNT ON;
+
+DECLARE @dia_ant varchar(10) = FORMAT(GETDATE()-1,'yyyy-MM-dd') 
+
+	SELECT 'C_SUCU_EMPR','FECHA','C_ARTICULO','Q_VENTA_30_DIAS','Q_VENTA_15_DIAS','Q_VENTA_DOMINGO','Q_VENTA_ESPECIAL_30_DIAS','Q_VENTA_ESPECIAL_15_DIAS','Q_DIAS_CON_STOCK','Q_REPONER'
+	,'Q_REPONER_INCLUIDO_SOBRE_STOCK','M_SEMAFORO_INDIVIDUAL','M_SEMAFORO_GLOBAL','Q_VENTA_DIARIA_NORMAL','Q_DIAS_STOCK','Q_DIAS_SOBRE_STOCK','Q_DIAS_ENTREGA_PROVEEDOR'
+
+	UNION ALL
+	select CONVERT(varchar,[C_SUCU_EMPR])
+	   ,@dia_ant
+      ,CONVERT(varchar,[C_ARTICULO])
+      ,CONVERT(varchar,[Q_VENTA_30_DIAS])
+      ,CONVERT(varchar,[Q_VENTA_15_DIAS])
+      ,CONVERT(varchar,[Q_VENTA_DOMINGO])
+      ,CONVERT(varchar,[Q_VENTA_ESPECIAL_30_DIAS])
+      ,CONVERT(varchar,[Q_VENTA_ESPECIAL_15_DIAS])
+      ,CONVERT(varchar,[Q_DIAS_CON_STOCK])
+      ,CONVERT(varchar,[Q_REPONER])
+      ,CONVERT(varchar,[Q_REPONER_INCLUIDO_SOBRE_STOCK])
+      ,CONVERT(varchar,[M_SEMAFORO_INDIVIDUAL])
+      ,CONVERT(varchar,[M_SEMAFORO_GLOBAL])
+      ,CONVERT(varchar,[Q_VENTA_DIARIA_NORMAL])
+      ,CONVERT(varchar,[Q_DIAS_STOCK] )
+      ,CONVERT(varchar,[Q_DIAS_SOBRE_STOCK])
+      ,CONVERT(varchar,[Q_DIAS_ENTREGA_PROVEEDOR])
+
+	from [DIARCOP001].[DiarcoP].[dbo].[T710_ESTADIS_REPOSICION]
+end;
+	
+GO
+
+

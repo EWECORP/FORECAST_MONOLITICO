@@ -1,0 +1,95 @@
+/** REVISAR CON HERNAN
+
+  1) Necesito recuperar  FILTRAR solo PRODUCTOS HABILITADOS y 
+     Traer datos de STOCK y PENDIENTES desde PRODUCCIÓN
+**/
+
+SELECT A.[C_PROVEEDOR_PRIMARIO]
+	,S.[C_ARTICULO]
+	,S.[C_SUCU_EMPR]
+	,S.[I_PRECIO_VTA]
+	,S.[I_COSTO_ESTADISTICO]
+	,S.[Q_FACTOR_VTA_SUCU]
+	,S.[Q_BULTOS_PENDIENTE_OC]-- OJO esto está en BULTOS DIARCO
+	,S.[Q_PESO_PENDIENTE_OC]
+	,S.[Q_UNID_PESO_PEND_RECEP_TRANSF]
+	,ST.Q_UNID_ARTICULO AS Q_STOCK_UNIDADES-- Stock Cierre Dia Anterior
+	,ST.Q_PESO_ARTICULO AS Q_STOCK_PESO
+	,S.[M_OFERTA_SUCU]
+	,S.[M_HABILITADO_SUCU]
+	,S.[M_FOLDER]
+	,A.M_BAJA  --- Puede no ser necesaria al hacer inner
+	--,S.[Q_UNID_PESO_VTA_MES_ACTUAL]
+	,S.[F_ULTIMA_VTA]
+	,S.[Q_VTA_ULTIMOS_15DIAS]-- OJO esto está en BULTOS DIARCO
+	,S.[Q_VTA_ULTIMOS_30DIAS]-- OJO esto está en BULTOS DIARCO
+	,S.[Q_TRANSF_PEND]-- OJO esto está en BULTOS DIARCO
+	,S.[Q_TRANSF_EN_PREP]-- OJO esto está en BULTOS DIARCO
+	--,A.[N_ARTICULO]
+	,A.[C_FAMILIA]
+	,A.[C_RUBRO]
+	,A.[C_CLASIFICACION_COMPRA] 
+	,(R.[Q_VENTA_30_DIAS] + R.[Q_VENTA_15_DIAS]) AS Q_VENTA_ACUM_30 -- OJO esto está en BULTOS DIARCO
+	,R.[Q_DIAS_CON_STOCK] -- Cantidad de dias para promediar venta diaria
+	,R.[Q_REPONER] -- OJO esto está en BULTOS DIARCO
+	,R.[Q_REPONER_INCLUIDO_SOBRE_STOCK]-- OJO esto está en BULTOS DIARCO (Venta Promedio * Comprar Para + Lead Time - STOCK - PEND, OC)
+	    --- Ojo la venta promerio excluye  las oferta para no alterar el promedio
+	,R.[Q_VENTA_DIARIA_NORMAL]-- OJO esto está en BULTOS DIARCO
+	,R.[Q_DIAS_STOCK]
+	,R.[Q_DIAS_SOBRE_STOCK]
+	,R.[Q_DIAS_ENTREGA_PROVEEDOR]
+        
+FROM [DIARCOP001].[DiarcoP].[dbo].[T051_ARTICULOS_SUCURSAL] S
+INNER JOIN [DIARCOP001].[DiarcoP].[dbo].[T050_ARTICULOS] A
+	ON A.[C_ARTICULO] = S.[C_ARTICULO]
+LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T060_STOCK] ST
+	ON ST.C_ARTICULO = S.[C_ARTICULO] 
+	AND ST.C_SUCU_EMPR = S.[C_SUCU_EMPR]
+LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T055_ARTICULOS_PARAM_STOCK] P
+	ON P.[C_SUCU_EMPR] = S.[C_SUCU_EMPR]
+	AND P.[C_FAMILIA] = A.[C_FAMILIA]
+	AND P.[C_RUBRO] = A.[C_RUBRO]
+	AND P.[C_CLAISIFICACION_COMPRA] = A.[C_CLASIFICACION_COMPRA]  -- ojo nombre erroneo
+AND P.[C_FAMILIA] =A.[C_FAMILIA]
+LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T710_ESTADIS_REPOSICION] R
+	ON R.[C_ARTICULO] = S.[C_ARTICULO]
+	AND R.[C_SUCU_EMPR] = S.[C_SUCU_EMPR]
+
+WHERE S.[M_HABILITADO_SUCU] = 'S' -- Permitido Reponer
+	AND A.M_BAJA = 'N'  -- Activo en Maestro Artículos
+	AND A.[C_PROVEEDOR_PRIMARIO] = '20' -- Solo del Proveedor
+        
+ORDER BY S.[C_ARTICULO],S.[C_SUCU_EMPR];
+
+
+--******************
+--* Segunda Rutina
+--******************
+
+SELECT TOP 100 V.[F_VENTA] as Fecha
+    ,V.[C_ARTICULO] as Codigo_Articulo
+    ,V.[C_SUCU_EMPR] as Sucursal
+    ,V.[I_PRECIO_VENTA] as Precio
+    ,V.[I_PRECIO_COSTO] as Costo
+    ,V.[Q_UNIDADES_VENDIDAS] as Unidades
+    ,V.[C_FAMILIA] as Familia
+    ,A.[C_RUBRO] as Rubro
+    ,A.[C_SUBRUBRO_1] as SubRubro
+    ,LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(A.N_ARTICULO, CHAR(9), ''), CHAR(13), ''), CHAR(10), ''))) as Nombre_Articulo
+    ,A.[C_CLASIFICACION_COMPRA] as Clasificacion
+FROM [DCO-DBCORE-P02].[DiarcoEst].[dbo].[T702_EST_VTAS_POR_ARTICULO] V
+LEFT JOIN [DCO-DBCORE-P02].[DiarcoEst].[dbo].[T050_ARTICULOS] A 
+    ON V.C_ARTICULO = A.C_ARTICULO
+WHERE A.[C_PROVEEDOR_PRIMARIO] = '20' AND V.F_VENTA >= '20210101' AND A.M_BAJA ='N'
+ORDER BY V.F_VENTA 
+
+
+
+SELECT TOP 100 * FROM [DIARCOP001].[DiarcoP].[dbo].[T710_ESTADIS_REPOSICION] 
+
+SELECT TOP 100 Q_UNID_ARTICULO, Q_PESO_ARTICULO, * FROM [DIARCOP001].[DiarcoP].[dbo].[T060_STOCK] 
+WHERE C_ARTICULO = 166 AND C_SUCU_EMPR = 1--  Estos Datos son DEL CIERRE DEL DIA ANTERIOR y en Unidades o peso dependiendo de la marca de la T050 ????
+
+
+SELECT TOP 100 * FROM [DIARCOP001].[DiarcoP].[dbo].[T710_ESTADIS_PRECIOS]
+	WHERE C_ANIO = '2025' and C_MES = '3'

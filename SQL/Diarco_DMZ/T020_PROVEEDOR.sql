@@ -1,0 +1,50 @@
+SELECT [C_PROVEEDOR]
+      ,[N_PROVEEDOR]
+      ,[C_TIPO_PROVEEDOR]
+      ,[C_TIPO_PROVEEDOR_DIARCO]
+
+  
+       ,[F_ALTA]
+      ,[F_BAJA]
+      ,[M_ACTIVO]
+      ,[C_LINEA_PRODUCTO]
+      ,[C_EANEDI]
+  
+       ,[C_PLAZO_ENTREGA1]
+      ,[C_PLAZO_ENTREGA2]
+      ,[C_PLAZO_ENTREGA3]
+      ,[C_PLAZO_ENTREGA4]
+      ,[C_PLAZO_ENTREGA5]
+      ,[C_PLAZO_ENTREGA6]
+      ,[M_ATEN_CLIE_LUN]
+      ,[M_ATEN_CLIE_MAR]
+      ,[M_ATEN_CLIE_MIE]
+      ,[M_ATEN_CLIE_JUE]
+      ,[M_ATEN_CLIE_VIE]
+      ,[M_ATEN_CLIE_SAB]
+      ,[M_ATEN_CLIE_DOM]
+      ,[I_ENVASE]
+
+      ,[M_BAJA]
+  
+      ,[U_DIAS_TOPE_PARA_AGENDA]
+      ,[U_DIAS_TOPE_PARA_INGRESO_AGENDA]
+      ,[M_ATEN_PROV_LUN]
+      ,[M_ATEN_PROV_MAR]
+      ,[M_ATEN_PROV_MIE]
+      ,[M_ATEN_PROV_JUE]
+      ,[M_ATEN_PROV_VIE]
+      ,[M_ATEN_PROV_SAB]
+      ,[M_ATEN_PROV_DOM]
+      ,[C_PERIODO_ATENCION_AGENDA]
+       ,[U_DIAS_PAGO]
+      ,[C_CLIENTE]
+      ,[M_COMPENSACION_DIRECTA]
+      ,[C_NIVEL_PROVEEDOR]
+      ,[C_TIPO_PROVEEDOR_EDI]
+      ,[C_TIPO_PROVEEDOR_EDI_CPTE]
+ INTO T020_PROVEEDOR
+  FROM [DIARCOP001].[DiarcoP].[dbo].[T020_PROVEEDOR]
+GO
+
+

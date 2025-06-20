@@ -1,0 +1,77 @@
+USE [data-sync]
+GO
+
+/****** REGENERAR ORDENES DE COMPRA ******/
+IF  EXISTS (SELECT * FROM sys.objects WHERE object_id = OBJECT_ID(N'[dbo].[T_OC_CABECERA]') AND type in (N'U'))
+DROP TABLE [dbo].[T_OC_CABECERA]
+GO
+
+SELECT [C_OC]
+      ,[U_PREFIJO_OC]
+      ,[U_SUFIJO_OC]
+      ,[U_PREFIJO_LOTE]
+      ,[U_LOTE]
+      ,[M_OC_MADRE]
+      ,[M_OC_PARA_TRANSFERENCIA]
+      ,[M_OC_PAGOANT]
+      ,[U_DIAS_LIMITE_ENTREGA]
+      ,[C_PROVEEDOR]
+      ,[C_SUCU_COMPRA]
+      ,[C_SUCU_DESTINO]
+      ,[C_SUCU_DESTINO_ALT]
+      ,[C_SITUAC]
+      ,[F_SITUAC]
+      ,[F_ALTA_SIST]
+      ,[F_EMISION]
+      ,[F_ENTREGA]
+      ,[I_NETO_OC]
+      ,[I_IVA_OC]
+      ,[I_IMP_INTERNO_OC]
+      ,[I_TOTAL_OC]
+      ,[C_COMPRADOR]
+      ,[C_USUARIO_OPERADOR]
+      ,[C_TERMINAL_OPERADOR]
+      ,[C_USUARIO_CUMPLIO]
+      ,[C_TIPO]
+      ,[C_PLAZO_ENTREGA1]
+      ,[C_PLAZO_ENTREGA2]
+      ,[C_PLAZO_ENTREGA3]
+      ,[C_PLAZO_ENTREGA4]
+      ,[C_PLAZO_ENTREGA5]
+      ,[C_PLAZO_ENTREGA6]
+      ,[D_COND_PAGO]
+      ,[D_OBSERVACION]
+      ,[F_COMP_ING_MERC]
+      ,[C_COMP_ING_MERC]
+      ,[U_PREFIJO_COMP_ING_MERC]
+      ,[U_SUFIJO_COMP_ING_MERC]
+      ,[D_OBSERVACION_ING_MERC]
+      ,[C_TIPO_ENTREGA_MERCADERIA]
+      ,[C_USUARIO_MODIFICO]
+      ,[C_TERMINAL_MODIFICO]
+      ,[F_MODIFICO]
+      ,[M_OC_ELECTRONICA]
+      ,[C_SITUAC_OC_ELECTRONICA]
+      ,[F_SITUAC_OC_ELECTRONICA]
+      ,[M_ENVIADO]
+      ,[M_ESP]
+      ,[C_TIPO_PROVEEDOR_EDI]
+
+ INTO T_OC_CABECERA
+  FROM [DIARCOP001].[DiarcoP].[dbo].[T080_OC_CABE]
+  WHERE [F_ALTA_SIST] >='20250101'
+GO
+
+/***  Actualizar DATOS  COMPLEMENTARIOS  ***/
+USE [data-sync]
+GO
+
+ALTER TABLE [dbo].T_OC_CABECERA
+ADD [N_PROVEEDOR] NVARCHAR(50) NULL;
+
+UPDATE T
+SET T.[N_PROVEEDOR] = P.[N_PROVEEDOR]
+
+FROM [dbo].T_OC_CABECERA T
+INNER JOIN [DIARCOP001].[DiarcoP].[dbo].[T020_PROVEEDOR] P
+    ON T.[C_PROVEEDOR] = P.[C_PROVEEDOR];     

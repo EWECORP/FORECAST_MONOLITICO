@@ -1,0 +1,65 @@
+USE [kikker]
+GO
+
+/****** Object:  StoredProcedure [dbo].[SP_ZTRX_M_96_STOCK_SEGURIDAD]    Script Date: 19/06/2025 16:01:29 ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+CREATE PROCEDURE [dbo].[SP_ZTRX_M_96_STOCK_SEGURIDAD]
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- Eliminar la tabla M_96_STOCK_SEGURIDAD si ya existe
+    IF OBJECT_ID('dbo.M_96_STOCK_SEGURIDAD', 'U') IS NOT NULL
+    BEGIN
+        DROP TABLE dbo.M_96_STOCK_SEGURIDAD;
+    END
+
+    -- Crear la tabla M_96_STOCK_SEGURIDAD nuevamente
+    CREATE TABLE M_96_STOCK_SEGURIDAD (
+        COD_PROV VARCHAR(10),
+        COD_ART VARCHAR(10),
+        COD_SUC VARCHAR(10),
+        DIA_STOCK VARCHAR(10),
+		F_DATO DATETIME,  -- Fecha y hora de vigencia del dato
+		F_PROC DATETIME  -- Fecha y hora de procesamiento
+    );
+
+    -- Insertar los datos en la tabla M_96_STOCK_SEGURIDAD con la fecha de procesamiento
+    INSERT INTO M_96_STOCK_SEGURIDAD (COD_PROV, COD_ART, COD_SUC, DIA_STOCK, F_DATO, F_PROC)
+    SELECT 
+        CAST(ART_COST.C_PROVEEDOR AS VARCHAR(10)) AS COD_PROV,
+        CAST(ART_COST.C_ARTICULO AS VARCHAR(10)) AS COD_ART,
+        CASE 
+            WHEN ART_COST.C_SUCU_EMPR = 41 THEN '41CD'
+            ELSE DBO.[NORMALIZA_STRING](ART_COST.C_SUCU_EMPR)
+        END AS COD_SUC,
+        CAST(ART_COST.Q_DIAS_STOCK + ART_COST.Q_DIAS_SOBRE_STOCK AS VARCHAR(10)) AS DIA_STOCK,
+		GETDATE() AS F_DATO, -- Fecha y hora actual en formato DATETIME
+		GETDATE() AS F_PROC -- Fecha y hora actual en formato DATETIME
+    FROM 
+        [DIARCOP001].[DiarcoP].dbo.T055_ARTICULOS_CONDCOMPRA_COSTOS ART_COST
+    INNER JOIN 
+        [DIARCOP001].[DiarcoP].dbo.T050_ARTICULOS ART 
+        ON ART.C_PROVEEDOR_PRIMARIO = ART_COST.C_PROVEEDOR 
+        AND ART.C_ARTICULO = ART_COST.C_ARTICULO
+    INNER JOIN 
+        [DIARCOP001].[DIARCOP].dbo.T100_EMPRESA_SUC SUC_MAE 
+        ON SUC_MAE.C_SUCU_EMPR = ART_COST.C_SUCU_EMPR
+    WHERE 
+        ART_COST.C_SUCU_EMPR NOT IN (6, 8, 14, 17, 39, 40, 300, 80, 81, 83, 84, 88) 
+        AND SUC_MAE.M_SUCU_VIRTUAL = 'N'
+        AND ART_COST.C_SUCU_EMPR NOT IN (
+            SELECT C_SUCU_EMPR 
+            FROM [DIARCOP001].[DiarcoP].dbo.T900_SUCURSALES_EXCLUIDAS_GERENCIA_DB
+        );
+
+END;
+GO
+
+

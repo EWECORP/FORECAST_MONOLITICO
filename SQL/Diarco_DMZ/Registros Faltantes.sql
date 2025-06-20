@@ -1,0 +1,7 @@
+/****** Script for SelectTopNRows command from SSMS  ******/
+SELECT DISTINCT (A.[CUENTA])
+      
+  FROM [CAPEX].[dbo].[EBS_ENE_ER_ACUM_CTA] A
+  LEFT JOIN [CAPEX].[dbo].[EBS_PLAN_CUENTAS_GESTION] B
+  ON A.CUENTA = B.CUENTA
+  WHERE B.CUENTA IS NULL

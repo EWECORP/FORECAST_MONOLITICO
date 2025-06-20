@@ -1,0 +1,4 @@
+SELECT COUNT(*)
+   
+  FROM [data-sync].[repl].[T702_EST_VTAS_POR_ARTICULO]
+  ORDer BY F_VENTA

@@ -1,0 +1,29 @@
+SELECT TOP (1000) A.[C_ARTICULO]
+	  ,S.[C_SUCU_EMPR]    
+      ,S.[M_HABILITADO_SUCU]
+      ,A.[C_PROVEEDOR_PRIMARIO]
+  
+      ,A.[M_A_DAR_DE_BAJA]
+ 
+      ,A.[M_BAJA]
+      ,A.[F_BAJA]
+ 
+      ,A.[C_COMPRADOR]
+	  ,V.[F_VENTA]
+	  ,V.[Q_UNIDADES_VENDIDAS]
+
+  
+  FROM [data-sync].[repl].[T050_ARTICULOS] A
+  FULL JOIN [data-sync].[repl].[T051_ARTICULOS_SUCURSAL] S  
+  ON A.C_ARTICULO = S.C_ARTICULO
+
+   FULL JOIN [data-sync].[repl].[T702_EST_VTAS_POR_ARTICULO] V
+   ON  V.[C_ARTICULO] = S.C_ARTICULO
+       AND V.[C_SUCU_EMPR] = S.[C_SUCU_EMPR]
+
+  WHERE A.C_PROVEEDOR_PRIMARIO = 4565
+       AND A.M_A_DAR_DE_BAJA ='N'
+	   AND A.M_BAJA ='N'
+	    AND S.M_HABILITADO_SUCU ='S'
+	   AND V.[F_VENTA]>= '2024-01-01'
+

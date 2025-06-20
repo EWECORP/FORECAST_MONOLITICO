@@ -1,0 +1,115 @@
+USE [kikker]
+GO
+
+/****** Object:  StoredProcedure [dbo].[SP_KIKKER_T_11_2_PROMOCIONES_ARTICULO]    Script Date: 19/06/2025 15:47:59 ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+CREATE   PROCEDURE [dbo].[SP_KIKKER_T_11_2_PROMOCIONES_ARTICULO]
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- Eliminar la tabla T_11_2_PROMOCIONES si ya existe
+    IF OBJECT_ID('dbo.T_11_2_PROMOCIONES_ARTICULO', 'U') IS NOT NULL
+    BEGIN
+        DROP TABLE dbo.T_11_2_PROMOCIONES_ARTICULO;
+    END
+
+    -- Crear la tabla T_11_2_PROMOCIONES
+    CREATE TABLE T_11_2_PROMOCIONES_ARTICULO (
+        COD_PROMOCION VARCHAR(10),
+        COD_ARTICULO VARCHAR(10),
+        C_SUCURSAL VARCHAR(10),
+        PRECIO_PROMO DECIMAL(18,2),
+        NOMBRE_PROMO VARCHAR(255),
+        FECHA_INICIO DATETIME,
+        FECHA_FINAL DATETIME,
+        F_DATO DATETIME,  -- Fecha y hora de vigencia del dato
+        F_PROC DATETIME   -- Fecha y hora de procesamiento
+    );
+
+    -- Definir la fecha de referencia para las promociones
+    DECLARE @fecha DATE = GETDATE() - 1;
+
+    -- Insertar los datos en la tabla T_11_2_PROMOCIONES con las fechas correspondientes
+    INSERT INTO T_11_2_PROMOCIONES_ARTICULO (COD_PROMOCION, COD_ARTICULO, C_SUCURSAL, PRECIO_PROMO, NOMBRE_PROMO, FECHA_INICIO, FECHA_FINAL, F_DATO, F_PROC)
+    SELECT
+        CONVERT(VARCHAR, PROMO.C_ART) AS COD_PROMOCION,
+        CONVERT(VARCHAR, PROMO.C_ART) AS COD_ARTICULO,
+        CASE 
+            WHEN PROMO.C_SUCU_EMPR = 41 THEN '41CD'
+            ELSE DBO.[NORMALIZA_STRING](PROMO.C_SUCU_EMPR)
+        END AS C_SUCURSAL,
+        CONVERT(DECIMAL(18,2), PROMO.PRECIO) AS PRECIO_PROMO,
+        PROMO.C_NOMBRE AS NOMBRE_PROMO,
+        MIN(PROMO.F_DESDE) AS FECHA_INICIO,
+        MAX(PROMO.F_HASTA) AS FECHA_FINAL,
+        GETDATE() -1 AS F_DATO,  -- Fecha y hora de vigencia del dato
+        GETDATE() AS F_PROC   -- Fecha y hora de procesamiento
+    FROM (
+        -- Primera consulta (T900_PRECIOS_VIGENCIA)
+        SELECT
+            DISTINCT
+            CAST(ART.C_ARTICULO AS VARCHAR(10)) AS C_ART,
+            DBO.[NORMALIZA_STRING](ART.N_ARTICULO) AS C_NOMBRE,
+            ART_SUC.C_SUCU_EMPR AS C_SUCU_EMPR,
+            CONVERT(VARCHAR, F_VIGENCIA_DESDE, 23) AS F_DESDE,
+            CONVERT(VARCHAR, F_VIGENCIA_HASTA, 23) AS F_HASTA,
+            CAST(ART_SUC.I_PRECIO_VTA AS DECIMAL(18,2)) AS PRECIO
+        FROM DIARCOP001.DIARCOP.DBO.T900_PRECIOS_VIGENCIA PV WITH (NOLOCK)
+        INNER JOIN [DIARCOP001].[DiarcoP].dbo.t050_articulos ART ON PV.C_ARTICULO = ART.C_ARTICULO
+        INNER JOIN [DIARCOP001].[DIARCOP].dbo.[T051_ARTICULOS_SUCURSAL] ART_SUC ON ART_SUC.C_ARTICULO = ART.C_ARTICULO AND ART_SUC.C_SUCU_EMPR = PV.C_SUCU_EMPR
+        WHERE M_VIGENTE = 'S' AND C_TIPO_PRECIO = 2
+
+        -- Segunda consulta (T900_PRECIOS_VIGENCIA en DIARCO-BARRIO)
+        UNION ALL
+        SELECT
+            DISTINCT
+            CAST(ART.C_ARTICULO AS VARCHAR(10)) AS C_ART,
+            DBO.[NORMALIZA_STRING](ART.N_ARTICULO) AS C_NOMBRE,
+            ART_SUC.C_SUCU_EMPR AS C_SUCU_EMPR,
+            CONVERT(VARCHAR, F_VIGENCIA_DESDE, 23) AS F_DESDE,
+            CONVERT(VARCHAR, F_VIGENCIA_HASTA, 23) AS F_HASTA,
+            CAST(ART_SUC.I_PRECIO_VTA AS DECIMAL(18,2)) AS PRECIO
+        FROM [DIARCO-BARRIO].DIARCOBARRIO.DBO.T900_PRECIOS_VIGENCIA PV WITH (NOLOCK)
+        INNER JOIN [DIARCOP001].[DiarcoP].dbo.t050_articulos ART ON PV.C_ARTICULO = ART.C_ARTICULO
+        INNER JOIN [DIARCOP001].[DIARCOP].dbo.[T051_ARTICULOS_SUCURSAL] ART_SUC ON ART_SUC.C_ARTICULO = ART.C_ARTICULO AND ART_SUC.C_SUCU_EMPR = PV.C_SUCU_EMPR
+        WHERE M_VIGENTE = 'S' AND C_TIPO_PRECIO = 2 
+
+        -- Tercera consulta (T230_facturador_negocios_especiales_por_cantidad)
+        UNION ALL
+        SELECT 
+            CAST(promo_venci.C_ARTICULO AS VARCHAR(10)) AS C_ART,
+            DBO.[NORMALIZA_STRING](ART.N_ARTICULO) AS C_NOMBRE,
+            promo_venci.C_SUCU_EMPR AS C_SUCU_EMPR,
+            CONVERT(VARCHAR, F_DESDE, 23) AS F_DESDE,
+            CONVERT(VARCHAR, F_HASTA, 23) AS F_HASTA,
+            CAST(promo_venci.I_PRECIO_VTA AS DECIMAL(18,2)) AS PRECIO
+        FROM [DIARCOP001].[DIARCOP].DBO.T230_facturador_negocios_especiales_por_cantidad promo_venci
+        INNER JOIN [DIARCOP001].[DiarcoP].dbo.t050_articulos ART ON promo_venci.C_ARTICULO = ART.C_ARTICULO
+        WHERE REPLACE(CONVERT(VARCHAR, @fecha, 111), '/', '-') BETWEEN F_DESDE AND F_HASTA AND q_unidades_kilos_saldo > 0
+
+        -- Cuarta consulta (T230_facturador_negocios_especiales_por_cantidad en DIARCO-BARRIO)
+        UNION ALL
+        SELECT 
+            CAST(promo_venci.C_ARTICULO AS VARCHAR(10)) AS C_ART,
+            DBO.[NORMALIZA_STRING](ART.N_ARTICULO) AS C_NOMBRE,
+            promo_venci.C_SUCU_EMPR AS C_SUCU_EMPR,
+            CONVERT(VARCHAR, F_DESDE, 23) AS F_DESDE,
+            CONVERT(VARCHAR, F_HASTA, 23) AS F_HASTA,
+            CAST(promo_venci.I_PRECIO_VTA AS DECIMAL(18,2)) AS PRECIO
+        FROM [DIARCO-BARRIO].[DIARCOBARRIO].DBO.T230_facturador_negocios_especiales_por_cantidad promo_venci
+        INNER JOIN [DIARCOP001].[DiarcoP].dbo.t050_articulos ART ON promo_venci.C_ARTICULO = ART.C_ARTICULO
+        WHERE REPLACE(CONVERT(VARCHAR, @fecha, 111), '/', '-') BETWEEN F_DESDE AND F_HASTA AND q_unidades_kilos_saldo > 0
+    ) AS PROMO
+    GROUP BY PROMO.C_ART, PROMO.C_NOMBRE, PROMO.C_SUCU_EMPR, PROMO.PRECIO;
+
+END;
+GO
+
+

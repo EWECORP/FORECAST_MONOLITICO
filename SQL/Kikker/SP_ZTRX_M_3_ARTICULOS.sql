@@ -1,0 +1,191 @@
+USE [kikker]
+GO
+
+/****** Object:  StoredProcedure [dbo].[SP_ZTRX_M_3_ARTICULOS]    Script Date: 19/06/2025 15:57:53 ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+
+
+
+CREATE   PROCEDURE [dbo].[SP_ZTRX_M_3_ARTICULOS]
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    -- Crear una tabla temporal local
+    IF OBJECT_ID('tempdb..#TEMP_MERCADOLOGICO_KIKKER') IS NOT NULL
+    BEGIN
+        DROP TABLE #TEMP_MERCADOLOGICO_KIKKER;
+    END
+
+    CREATE TABLE #TEMP_MERCADOLOGICO_KIKKER (
+        C_ARTICULO      DECIMAL(10, 0) NULL DEFAULT 0,
+        C_FAMILIA       DECIMAL(10, 0) NULL DEFAULT 0,
+        C_RUBRO         DECIMAL(10, 0) NULL DEFAULT 0,
+        C_SUBRUBRO_1    DECIMAL(10, 0) NULL DEFAULT 0,
+        C_SUBRUBRO_2    DECIMAL(10, 0) NULL DEFAULT 0,
+        C_SUBRUBRO_3    DECIMAL(10, 0) NULL DEFAULT 0,
+        C_SUBRUBRO_4    DECIMAL(10, 0) NULL DEFAULT 0,
+        N_FAMILIA       CHAR(100) NULL,
+        N_RUBRO         CHAR(100) NULL,
+        N_SUBRUBRO_1    CHAR(100) NULL,
+        N_SUBRUBRO_2    CHAR(100) NULL,
+        N_SUBRUBRO_3    CHAR(100) NULL,
+        N_SUBRUBRO_4    CHAR(100) NULL
+    );
+
+    -- Insertar los datos en la tabla temporal
+    INSERT INTO #TEMP_MERCADOLOGICO_KIKKER (
+        C_ARTICULO, C_FAMILIA, C_RUBRO, C_SUBRUBRO_1, C_SUBRUBRO_2, C_SUBRUBRO_3, C_SUBRUBRO_4,
+        N_FAMILIA, N_RUBRO, N_SUBRUBRO_1, N_SUBRUBRO_2, N_SUBRUBRO_3, N_SUBRUBRO_4
+    )
+    SELECT
+        C_ARTICULO,
+        CASE WHEN C_FAMILIA = 0 THEN 999 ELSE C_FAMILIA END,
+        CASE WHEN C_RUBRO = 0 THEN 999 ELSE C_RUBRO END,
+        CASE WHEN C_SUBRUBRO_1 = 0 THEN 999 ELSE C_SUBRUBRO_1 END,
+        CASE WHEN C_SUBRUBRO_2 = 0 THEN 999 ELSE C_SUBRUBRO_2 END,
+        CASE WHEN C_SUBRUBRO_3 = 0 THEN 999 ELSE C_SUBRUBRO_3 END,
+        CASE WHEN C_SUBRUBRO_4 = 0 THEN 999 ELSE C_SUBRUBRO_4 END,
+        'SIN CLASIFICAR', 'SIN CLASIFICAR', 'SIN CLASIFICAR', 'SIN CLASIFICAR', 'SIN CLASIFICAR', 'SIN CLASIFICAR'
+    FROM [DIARCOP001].[DiarcoP].dbo.T050_ARTICULOS WITH (NOLOCK)
+    WHERE C_ARTICULO NOT IN (SELECT C_ARTICULO FROM [DIARCOP001].[DiarcoP].dbo.T050_ARTICULOS_DIFERENCIAS_DE_PRECIOS WITH (NOLOCK));
+
+    -- Actualizar los datos en la tabla temporal utilizando JOINs
+    UPDATE T1
+    SET 
+        T1.N_FAMILIA = T2.D_RUBRO
+    FROM #TEMP_MERCADOLOGICO_KIKKER T1
+    JOIN [DIARCOP001].[DiarcoP].dbo.T114_RUBROS T2 WITH (NOLOCK)
+        ON T1.C_FAMILIA = T2.C_RUBRO
+    WHERE T2.C_RUBRO_PADRE = 0 AND T2.C_RUBRO_NIVEL = 1;
+
+    -- Actualizar más columnas usando un solo UPDATE por columna
+    UPDATE T1
+    SET T1.N_RUBRO = T2.D_RUBRO
+    FROM #TEMP_MERCADOLOGICO_KIKKER T1
+    JOIN [DIARCOP001].[DiarcoP].dbo.T114_RUBROS T2 WITH (NOLOCK)
+        ON T1.C_RUBRO = T2.C_RUBRO
+    WHERE T1.C_RUBRO <> 0;
+
+    -- Repetir lo mismo para subrubros
+    UPDATE T1
+    SET T1.N_SUBRUBRO_1 = T2.D_RUBRO
+    FROM #TEMP_MERCADOLOGICO_KIKKER T1
+    JOIN [DIARCOP001].[DiarcoP].dbo.T114_RUBROS T2 WITH (NOLOCK)
+        ON T1.C_SUBRUBRO_1 = T2.C_RUBRO
+    WHERE T1.C_SUBRUBRO_1 <> 0;
+
+    -- Eliminar y recrear la tabla de destino solo si es necesario
+    IF OBJECT_ID('dbo.M_3_ARTICULOS', 'U') IS NOT NULL
+    BEGIN
+        DROP TABLE dbo.M_3_ARTICULOS;
+    END
+    ELSE
+    BEGIN
+        -- Crear la tabla M_3_ARTICULOS
+        CREATE TABLE M_3_ARTICULOS (
+            C_ARTICULO DECIMAL(10, 0),
+            N_ARTICULO VARCHAR(MAX),
+            C_RUBRO DECIMAL(10, 0),
+            C_SUBRUBRO_1 DECIMAL(10, 0),
+            C_SUBRUBRO_2 DECIMAL(10, 0),
+            C_SUBRUBRO_3 DECIMAL(10, 0),
+            D_CODIGO_ABREV_VTA VARCHAR(MAX),
+            Q_FACTOR_VTA_SUCU DECIMAL(18, 4),
+            D_CODIGO_ABREV_CPRA VARCHAR(MAX),
+            Q_FACTOR_CPRA_SUCU DECIMAL(18, 4),
+            CLASIFICACION INT,
+            PLAZO_VALIDEZ VARCHAR(MAX),
+            PLAZO_ACEPTACION VARCHAR(MAX),
+            PLAZO_RETIRO_GONDOLA VARCHAR(MAX),
+            C_PROVEEDOR_PRIMARIO DECIMAL(10, 0),
+            EAN VARCHAR(50),
+            ARTICULO_BASE VARCHAR(MAX),
+            PROP_BAJA_BASE VARCHAR(MAX),
+            COD_ERP_PROD_COMPRA DECIMAL(10, 0),
+            PRECIO_COMPRA DECIMAL(18, 2),
+            OTRA_COLUMNA VARCHAR(MAX),
+            F_DATO DATETIME, -- Fecha y hora de vigencia del dato
+			F_PROC DATETIME  -- Fecha y hora de procesamiento
+        );
+    END;
+
+    -- Insertar los datos en la tabla M_3_ARTICULOS manteniendo los tipos de datos originales
+    INSERT INTO M_3_ARTICULOS (
+        C_ARTICULO, N_ARTICULO, C_RUBRO, C_SUBRUBRO_1, C_SUBRUBRO_2, C_SUBRUBRO_3,
+        D_CODIGO_ABREV_VTA, Q_FACTOR_VTA_SUCU, D_CODIGO_ABREV_CPRA, Q_FACTOR_CPRA_SUCU,
+        CLASIFICACION, PLAZO_VALIDEZ, PLAZO_ACEPTACION, PLAZO_RETIRO_GONDOLA,
+        C_PROVEEDOR_PRIMARIO, EAN, ARTICULO_BASE, PROP_BAJA_BASE,
+        COD_ERP_PROD_COMPRA, PRECIO_COMPRA, OTRA_COLUMNA
+    )
+    SELECT 
+        art.C_ARTICULO, -- Mantiene tipo DECIMAL
+        DBO.[NORMALIZA_STRING](art.N_ARTICULO),
+        art.C_RUBRO, -- Mantiene tipo DECIMAL
+        art.C_SUBRUBRO_1, -- Mantiene tipo DECIMAL
+        art.C_SUBRUBRO_2, -- Mantiene tipo DECIMAL
+        est.C_SUBRUBRO_3, -- Mantiene tipo DECIMAL
+        DBO.[NORMALIZA_STRING](cod.D_CODIGO_ABREV), -- Mantiene VARCHAR
+        AVG(suc.Q_FACTOR_VTA_SUCU), -- Mantiene DECIMAL(18, 4)
+        DBO.[NORMALIZA_STRING](cod.D_CODIGO_ABREV), -- Mantiene VARCHAR
+        CASE WHEN ART.M_VENDE_POR_PESO = 'N'
+            THEN AVG(prov.Q_FACTOR_PROVEEDOR) -- Mantiene DECIMAL(18, 4)
+            ELSE AVG(ART.Q_PESO_UNIT_ART) -- Mantiene DECIMAL(18, 4)
+        END,
+        1, -- Mantiene tipo INT
+        '', '', '', -- PLAZO_VALIDEZ, PLAZO_ACEPTACION, PLAZO_RETIRO_GONDOLA (VARCHAR)
+        art.C_PROVEEDOR_PRIMARIO, -- Mantiene tipo DECIMAL
+        LTRIM(RTRIM(art.C_EAN)), -- Mantiene tipo VARCHAR
+        '', '', -- ARTICULO_BASE, PROP_BAJA_BASE (VARCHAR)
+        art.C_ARTICULO, -- Mantiene tipo DECIMAL
+        AVG(COST.I_LISTA_CALCULADO), -- Mantiene tipo DECIMAL(18, 2)
+        '' -- OTRA_COLUMNA (VARCHAR)
+    FROM 
+        [DIARCOP001].[DiarcoP].dbo.t050_articulos art WITH(NOLOCK)
+        INNER JOIN [DIARCOP001].[DiarcoP].dbo.T051_ARTICULOS_SUCURSAL suc WITH(NOLOCK) 
+            ON suc.C_ARTICULO = art.C_ARTICULO
+        INNER JOIN [DIARCOP001].[DiarcoP].dbo.T052_ARTICULOS_PROVEEDOR prov WITH(NOLOCK) 
+            ON art.C_PROVEEDOR_PRIMARIO = prov.C_PROVEEDOR 
+            AND art.C_ARTICULO = prov.C_ARTICULO 
+            AND suc.C_ARTICULO = prov.C_ARTICULO
+        INNER JOIN [DIARCOP001].[DiarcoP].dbo.T055_ARTICULOS_CONDCOMPRA_COSTOS cost WITH(NOLOCK) 
+            ON art.C_ARTICULO = cost.C_ARTICULO 
+            AND cost.C_PROVEEDOR = art.C_PROVEEDOR_PRIMARIO 
+            AND cost.C_SUCU_EMPR = suc.C_SUCU_EMPR
+        INNER JOIN [DIARCOP001].[DiarcoP].dbo.T001_TABLA_CODIGO cod WITH(NOLOCK) 
+            ON art.c_UNIDAD_MEDIDA = cod.C_CODIGO_TABLA 
+            AND c_tabla = 79
+        INNER JOIN #TEMP_MERCADOLOGICO_KIKKER est WITH(NOLOCK) 
+            ON est.C_ARTICULO = art.C_ARTICULO 
+            AND est.C_RUBRO = art.C_RUBRO 
+            AND est.C_SUBRUBRO_1 = art.C_SUBRUBRO_1 
+            AND est.C_SUBRUBRO_2 = art.C_SUBRUBRO_2
+    GROUP BY
+        art.C_ARTICULO, 
+        art.N_ARTICULO, 
+        art.C_RUBRO, 
+        art.C_SUBRUBRO_1, 
+        art.C_SUBRUBRO_2, 
+        est.C_SUBRUBRO_3, 
+        cod.D_CODIGO_ABREV, 
+        art.C_PROVEEDOR_PRIMARIO,
+        art.C_EAN,
+        ART.M_VENDE_POR_PESO;
+
+    -- Actualizar la fecha de procesamiento
+    UPDATE M_3_ARTICULOS
+    SET F_DATO = GETDATE(),
+	    F_PROC = GETDATE()
+	
+    -- Eliminar la tabla temporal
+    DROP TABLE #TEMP_MERCADOLOGICO_KIKKER;
+END;
+GO
+
+

@@ -1,0 +1,5 @@
+SELECT TOP (1000) [C_PROVEEDOR]
+      ,[N_PROVEEDOR]
+     
+  FROM [data-sync].[dbo].[T020_PROVEEDOR]
+WHere [C_PROVEEDOR] IN (2676, 190, 6363, 3835)

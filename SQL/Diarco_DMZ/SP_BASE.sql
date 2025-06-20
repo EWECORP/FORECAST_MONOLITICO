@@ -1,0 +1,12 @@
+USE [data-sync]
+GO
+
+/******  Script Date: 19/06/2025 9:18:06 ******/
+SET ANSI_NULLS ON
+GO
+
+SET QUOTED_IDENTIFIER ON
+GO
+
+
+CREATE PROCEDURE [dbo].[SP_CNX_
