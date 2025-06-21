@@ -1,11 +1,11 @@
-# MODIFICADO: 2025-06-21
+# MODIFICADO: 2025-05-29
 # ACAPTADO a Nuevas Tablas y Estructura de Datos en POSTGRES
 # Se hace con Ejecución Remota 
 # Depende de procesos de estración Previo
 # Se mantiene por Compatibilidad con el resto de la aplicación las funciones _OLD
 """
 funciones_forecast.py
-Versión 1.3.3
+Versión 1.3.2
 
 Este módulo contiene todas las funciones necesarias para:
 - conexión a bases de datos
@@ -15,7 +15,6 @@ Este módulo contiene todas las funciones necesarias para:
 - Nuevas Funciona JSON y Diccionarios
 - Nuevos JSON Refacctorizado
 - CONFIGURACIÓN DINAMICA desde .env
-- NUEVA Generación Masiva de Datos
 
 """
 
@@ -196,10 +195,10 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         # Aquí puedes incluir el código para generar los datos si no cumplen con la condición
         conn = Open_Diarco_Data()
 
-        # --- ARTÍCULOS --- NUEVA FUENTE GLOBAL 06/25
+        # --- ARTÍCULOS ---
         query_articulos = f"""
             SELECT *
-            FROM src.base_productos_vigentes
+            FROM src.base_forecast_articulos
             WHERE c_proveedor_primario = {id_proveedor}
             ORDER BY c_articulo, c_sucu_empr;
         """
@@ -210,32 +209,22 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             return None, None
 
         articulos.columns = articulos.columns.str.upper()
-        articulos['C_SUCU_EMPR'] = articulos['C_SUCU_EMPR'].astype(int)
-        articulos['C_ARTICULO'] = articulos['C_ARTICULO'].astype(int)
         articulos['C_PROVEEDOR_PRIMARIO'] = articulos['C_PROVEEDOR_PRIMARIO'].astype(int)
-        articulos['ABASTECIMIENTO'] = articulos['ABASTECIMIENTO'].astype(int)
-        articulos['HABILITADO'] = articulos['HABILITADO'].astype(int)
         articulos['C_COMPRADOR'] = articulos['C_COMPRADOR'].astype(int)
-        articulos['Q_FACTOR_COMPRA'] = articulos['Q_FACTOR_COMPRA'].astype(int)
-        articulos['FULL_CAPACITY_PALLET'] = articulos['FULL_CAPACITY_PALLET'].astype(int)
-        articulos['NUMBER_OF_LAYERS'] = articulos['NUMBER_OF_LAYERS'].astype(int)
-        articulos['NUMBER_OF_BOXES_PER_LAYER'] = articulos['NUMBER_OF_BOXES_PER_LAYER'].astype(int)
+        articulos['C_ARTICULO'] = articulos['C_ARTICULO'].astype(int)
+        articulos['C_FAMILIA'] = articulos['C_FAMILIA'].astype(int)
+        articulos['C_RUBRO'] = articulos['C_RUBRO'].astype(int)
+        articulos['Q_DIAS_STOCK'] = articulos['Q_DIAS_STOCK'].fillna(ventana).astype(int)
+        articulos['Q_DIAS_SOBRE_STOCK'] = articulos['Q_DIAS_SOBRE_STOCK'].fillna(0).astype(int)
         articulos.to_csv(archivo_articulos, index=False, encoding='utf-8')
         print(f"---> Datos de Artículos guardados")
 
         # --- VENTAS ---
         query_ventas = f"""
-            SELECT 
-                v.f_venta AS Fecha, 
-                v.c_articulo as Codigo_Articulo, 
-                v.c_sucu_empr as Sucursal, 
-                v.q_unidades_vendidas as Unidades
-            FROM src.t702_est_vtas_por_articulo v
-            JOIN src.base_productos_vigentes a 
-                ON a.c_articulo = v.c_articulo
-                AND a.c_sucu_empr = v.c_sucu_empr::text
-                AND a.c_proveedor_primario = {id_proveedor}
-            WHERE v.f_venta >= '2024-01-01'  
+            SELECT fecha, codigo_articulo, sucursal, precio, costo, unidades, familia, rubro, subrubro,
+                c_proveedor_primario, nombre_articulo, clasificacion, fecha_procesado, marca_procesado
+            FROM src.base_forecast_ventas
+            WHERE c_proveedor_primario = {id_proveedor}
             ORDER BY fecha;
         """
         demanda = pd.read_sql(query_ventas, conn) # type: ignore
@@ -245,10 +234,15 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             return None, articulos
 
         demanda = demanda.rename(columns={
-            "fecha": "Fecha",
             "codigo_articulo": "Codigo_Articulo",
             "sucursal": "Sucursal",
-            "unidades": "Unidades"
+            "fecha": "Fecha",
+            "precio": "Precio",
+            "costo": "Costo",
+            "unidades": "Unidades",
+            "familia": "Familia",
+            "rubro": "Rubro",
+            "subrubro": "SubRubro"
         })
 
         # --- MERGE ---
@@ -278,6 +272,180 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         ventas.to_csv(f'{folder}/{etiqueta}_Ventas.csv', index=False, encoding='utf-8')
         print(f"---> Datos de Ventas guardados")
 
+        Close_Connection(conn)
+        return data, articulos
+
+# Rutina anterior para compatibilidad EJECUCIÓN LOCAL
+def generar_datos_OLD(id_proveedor, etiqueta, ventana):
+    folder = secrets["FOLDER_DATOS"]
+    
+    #  Intento recuperar datos cacheados
+    try:
+        data = pd.read_csv(f'{folder}/{etiqueta}.csv')
+        data['Codigo_Articulo']= data['Codigo_Articulo'].astype(int)
+        data['Sucursal']= data['Sucursal'].astype(int)
+        data['Fecha']= pd.to_datetime(data['Fecha'])
+
+        articulos = pd.read_csv(f'{folder}/{etiqueta}_articulos.csv')
+        #articulos.head()
+        print(f"-> Datos Recuperados del CACHE: {id_proveedor}, Label: {etiqueta}")
+        return data, articulos
+    except:     
+        print(f"-> Generando datos para ID: {id_proveedor}, Label: {etiqueta}")
+        # Configuración de conexión
+        conn = Open_Connection()
+        
+        # ----------------------------------------------------------------
+        # FILTRA solo PRODUCTOS HABILITADOS y Traer datos de STOCK y PENDIENTES desde PRODUCCIÓN
+        # ----------------------------------------------------------------
+        query = f"""
+        SELECT A.[C_PROVEEDOR_PRIMARIO]
+            ,A.[C_COMPRADOR] 
+            ,S.[C_ARTICULO]
+            ,S.[C_SUCU_EMPR]
+            ,S.[I_PRECIO_VTA]
+            ,S.[I_COSTO_ESTADISTICO]
+            ,S.[Q_FACTOR_VTA_SUCU]
+            ,S.[Q_BULTOS_PENDIENTE_OC]-- OJO esto está en BULTOS DIARCO
+            ,S.[Q_PESO_PENDIENTE_OC]
+            ,S.[Q_UNID_PESO_PEND_RECEP_TRANSF]
+            ,A.[M_VENDE_POR_PESO]
+            ,ST.Q_UNID_ARTICULO AS Q_STOCK_UNIDADES-- Stock Cierre Dia Anterior
+            ,ST.Q_PESO_ARTICULO AS Q_STOCK_PESO
+            ,S.[M_OFERTA_SUCU]
+            ,S.[M_HABILITADO_SUCU]
+            ,S.[M_FOLDER]
+            ,A.M_BAJA  --- Puede no ser necesaria al hacer inner
+            ,S.[F_ULTIMA_VTA]
+            ,S.[Q_VTA_ULTIMOS_15DIAS]-- OJO esto está en BULTOS DIARCO
+            ,S.[Q_VTA_ULTIMOS_30DIAS]-- OJO esto está en BULTOS DIARCO
+            ,S.[Q_TRANSF_PEND]-- OJO esto está en BULTOS DIARCO
+            ,S.[Q_TRANSF_EN_PREP]-- OJO esto está en BULTOS DIARCO
+            --- ,A.[N_ARTICULO]
+            ,A.[C_FAMILIA]
+            ,A.[C_RUBRO]
+            ,A.[C_CLASIFICACION_COMPRA] -- ojo nombre erroneo en la contratabla
+            ,(R.[Q_VENTA_30_DIAS] + R.[Q_VENTA_15_DIAS]) AS Q_VENTA_ACUM_30 -- OJO esto está en BULTOS DIARCO
+            ,R.[Q_DIAS_CON_STOCK] -- Cantidad de dias para promediar venta diaria
+            ,R.[Q_REPONER] -- OJO esto está en BULTOS DIARCO
+            ,R.[Q_REPONER_INCLUIDO_SOBRE_STOCK]-- OJO esto está en BULTOS DIARCO (Venta Promedio * Comprar Para + Lead Time - STOCK - PEND, OC)
+                --- Ojo la venta promerio excluye  las oferta para no alterar el promedio
+            ,R.[Q_VENTA_DIARIA_NORMAL]-- OJO esto está en BULTOS DIARCO
+            ,R.[Q_DIAS_STOCK]
+            ,R.[Q_DIAS_SOBRE_STOCK]
+            ,R.[Q_DIAS_ENTREGA_PROVEEDOR]
+			,AP.[Q_FACTOR_PROVEEDOR]
+			,AP.[U_PISO_PALETIZADO]
+			,AP.[U_ALTURA_PALETIZADO]
+			,CCP.[I_LISTA_CALCULADO]
+                
+        FROM [DIARCOP001].[DiarcoP].[dbo].[T051_ARTICULOS_SUCURSAL] S
+        INNER JOIN [DIARCOP001].[DiarcoP].[dbo].[T050_ARTICULOS] A
+            ON A.[C_ARTICULO] = S.[C_ARTICULO]
+        LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T060_STOCK] ST
+            ON ST.C_ARTICULO = S.[C_ARTICULO] 
+            AND ST.C_SUCU_EMPR = S.[C_SUCU_EMPR]
+
+        LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T052_ARTICULOS_PROVEEDOR] AP
+			ON A.[C_PROVEEDOR_PRIMARIO] = AP.[C_PROVEEDOR]
+				AND S.[C_ARTICULO] = AP.[C_ARTICULO]
+		LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T055_ARTICULOS_CONDCOMPRA_COSTOS] CCP
+			ON A.[C_PROVEEDOR_PRIMARIO] = CCP.[C_PROVEEDOR]
+				AND S.[C_ARTICULO] = CCP.[C_ARTICULO]
+				AND S.[C_SUCU_EMPR] = CCP.[C_SUCU_EMPR]
+
+		LEFT JOIN [DIARCOP001].[DiarcoP].[dbo].[T710_ESTADIS_REPOSICION] R
+            ON R.[C_ARTICULO] = S.[C_ARTICULO]
+            AND R.[C_SUCU_EMPR] = S.[C_SUCU_EMPR]
+
+        WHERE S.[M_HABILITADO_SUCU] = 'S' -- Permitido Reponer
+            AND A.M_BAJA = 'N'  -- Activo en Maestro Artículos
+            AND A.[C_PROVEEDOR_PRIMARIO] = {id_proveedor} -- Solo del Proveedor
+        
+        ORDER BY S.[C_ARTICULO],S.[C_SUCU_EMPR];
+        """
+        # Ejecutar la consulta SQL
+        articulos = pd.read_sql(query, conn) # type: ignore
+        file_path = f'{folder}/{etiqueta}_articulos.csv'
+        articulos['C_PROVEEDOR_PRIMARIO']= articulos['C_PROVEEDOR_PRIMARIO'].astype(int)
+        articulos['C_COMPRADOR']= articulos['C_COMPRADOR'].astype(int)
+        articulos['C_ARTICULO']= articulos['C_ARTICULO'].astype(int)
+        articulos['C_FAMILIA']= articulos['C_FAMILIA'].astype(int)
+        articulos['C_RUBRO']= articulos['C_RUBRO'].astype(int)
+            # Convertir a enteros y reemplazar valores nulos por el valor de ventana
+        articulos['Q_DIAS_STOCK'] = articulos['Q_DIAS_STOCK'].fillna(ventana).astype(int)
+        articulos['Q_DIAS_SOBRE_STOCK'] = articulos['Q_DIAS_SOBRE_STOCK'].fillna(0).astype(int)
+        articulos.to_csv(file_path, index=False, encoding='utf-8')        
+        print(f"---> Datos de Artículos guardados: {file_path}")
+        
+        # ----------------------------------------------------------------
+        # Consulta SQL para obtener las VENTAS de un proveedor específico   
+        # Reemplazar {proveedor} en la consulta con el ID de la tienda actual
+        # ----------------------------------------------------------------
+        query = f"""
+        SELECT V.[F_VENTA] as Fecha
+            ,V.[C_ARTICULO] as Codigo_Articulo
+            ,V.[C_SUCU_EMPR] as Sucursal
+            ,V.[I_PRECIO_VENTA] as Precio
+            ,V.[I_PRECIO_COSTO] as Costo
+            ,V.[Q_UNIDADES_VENDIDAS] as Unidades
+            ,V.[C_FAMILIA] as Familia
+            ,A.[C_RUBRO] as Rubro
+            ,A.[C_SUBRUBRO_1] as SubRubro
+            ,LTRIM(RTRIM(REPLACE(REPLACE(REPLACE(A.N_ARTICULO, CHAR(9), ''), CHAR(13), ''), CHAR(10), ''))) as Nombre_Articulo
+            ,A.[C_CLASIFICACION_COMPRA] as Clasificacion
+        FROM [DCO-DBCORE-P02].[DiarcoEst].[dbo].[T702_EST_VTAS_POR_ARTICULO] V
+        LEFT JOIN [DCO-DBCORE-P02].[DiarcoEst].[dbo].[T050_ARTICULOS] A 
+            ON V.C_ARTICULO = A.C_ARTICULO
+        WHERE A.[C_PROVEEDOR_PRIMARIO] = {id_proveedor} AND V.F_VENTA >= '20230101' AND A.M_BAJA ='N'
+        ORDER BY V.F_VENTA ;
+        """
+
+        # Ejecutar la consulta SQL
+        demanda = pd.read_sql(query, conn) # type: ignore
+        
+        # UNIR Y FILTRAR solo la demanda de los Hartículos VALIDOS.
+        # Realizar la unión (merge) de los DataFrames por las claves especificadas
+        data = pd.merge(
+            articulos,  # DataFrame de artículos
+            demanda,    # DataFrame de demanda
+            left_on=['C_ARTICULO', 'C_SUCU_EMPR'],  # Claves en 'articulos'
+            right_on=['Codigo_Articulo', 'Sucursal'],  # Claves en 'demanda'
+            how='inner'  # Solo traer los productos que están en 'articulos'
+        )
+            
+        # Guardar los resultados en un archivo CSV con el nombre del Proveedor
+        # en el  mismo formato que hubiera generado el Query.
+        # Esto se utilizaría como cache de datos.
+
+        file_path = f'{folder}/{etiqueta}.csv'
+        data['C_ARTICULO']= data['C_ARTICULO'].astype(int)
+        data['C_SUCU_EMPR']= data['C_SUCU_EMPR'].astype(int)
+        data['C_FAMILIA']= articulos['C_FAMILIA'].astype(int)
+        data['C_RUBRO']= articulos['C_RUBRO'].astype(int)
+        data['Codigo_Articulo']= data['Codigo_Articulo'].astype(int)
+        data['Sucursal']= data['Sucursal'].astype(int)
+        data.to_csv(file_path, index=False, encoding='utf-8')
+        print(f"---> Datos de RECUPERACIÓN guardados: {file_path}")  
+
+        # Eliminar Columnas Innecesarias
+        data = data[['Fecha', 'Codigo_Articulo', 'Sucursal', 'Unidades']]
+        
+        # Guardar los datos Compactos de VENTAS en un archivo CSV con el nombre del Proveedor y sufijo _Ventas
+        file_path = f'{folder}/{etiqueta}_Ventas.csv'
+
+        print(f"[DEBUG] Ruta destino definida en .env: {folder}")
+
+        data.to_csv(file_path, index=False, encoding='utf-8')
+        print(f"---> Datos de Ventas guardados: {file_path}")  
+
+        import os
+        if os.path.exists(file_path):
+            print(f"✅ Archivo verificado: {file_path}")
+        else:
+            print(f"❌ Archivo NO se encuentra donde se esperaba: {file_path}")
+        
+        # Cerrar la conexión después de la iteración
         Close_Connection(conn)
         return data, articulos
 
@@ -571,7 +739,7 @@ def Exportar_Pronostico(df_forecast, proveedor, etiqueta, algoritmo):
         conn.commit() # type: ignore
         print(f"✅ Inserción completada: {len(data_to_insert)} registros insertados.")
     except Exception as e:
-        conn.rollback() # type: ignore # type: ignore # type: ignore
+        conn.rollback()
         print(f"❌ Error en la inserción: {e}")
     finally:
         Close_Connection(conn)
@@ -754,7 +922,7 @@ def Calcular_Demanda_ALGO_01(df, id_proveedor, etiqueta, period_length, current_
     elapsed = round(time.time() - start_time, 2)
     print(f"🖼️ Preparación de Datos - Tiempo: {elapsed} seg")
     # Redondear la predicción al entero más cercano  y eliminar los Negativos
-    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0) # type: ignore
+    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0)
     df_forecast['Average'] = round(df_forecast['Forecast'] /period_length ,3)
     # Agregar las columnas id_proveedor y ventana
     df_forecast['id_proveedor'] = id_proveedor
@@ -854,7 +1022,7 @@ def Calcular_Demanda_ALGO_02(df, id_proveedor, etiqueta, ventana, current_date):
         # Crear el DataFrame final con los resultados del forecast
     df_forecast = pd.DataFrame(resultados)
         # Redondear la predicción al entero más cercano
-    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0) # type: ignore
+    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0)
     df_forecast['Average'] = round(df_forecast['Forecast'] /ventana ,3)
     
         # Agregar las columnas id_proveedor y ventana
@@ -955,7 +1123,7 @@ def Calcular_Demanda_ALGO_03(df, id_proveedor, etiqueta, ventana, current_date, 
     # Crear el DataFrame final con los resultados del forecast
     df_forecast = pd.DataFrame(resultados)
     # Redondear la predicción al entero más cercano
-    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0) # type: ignore
+    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0)
     df_forecast['Average'] = round(df_forecast['Forecast'] /ventana ,3)
     
     # Agregar las columnas id_proveedor y ventana
@@ -1043,7 +1211,7 @@ def Calcular_Demanda_ALGO_04(df, id_proveedor, etiqueta, ventana, current_date, 
     # Crear el DataFrame final con los resultados
     df_forecast = pd.DataFrame(resultados)
     # Redondear la predicción al entero más cercano y evitar negativos
-    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0) # type: ignore
+    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0)
     # Agregar las columnas id_proveedor y ventana
     df_forecast['id_proveedor'] = id_proveedor
     df_forecast['ventana'] = ventana
@@ -1121,7 +1289,7 @@ def Calcular_Demanda_ALGO_05(df, id_proveedor, etiqueta, ventana, current_date):
     # Crear el DataFrame de pronósticos
     df_forecast = pd.DataFrame(resultados)
         # Redondear la predicción al entero más cercano
-    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0) # type: ignore
+    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0)
     df_forecast['Average'] = round(df_forecast['Forecast'] /ventana ,3)
     
     # Agregar las columnas id_proveedor y ventana
@@ -1201,7 +1369,7 @@ def Calcular_Demanda_ALGO_06(df, id_proveedor, etiqueta, ventana, current_date):
         try:
             # Ajustar el modelo Holt con tendencia aditiva
             modelo = Holt(ventas_semanales)
-            modelo_ajustado = modelo.fit(smoothing_level=0.8, smoothing_slope=0.2)   # type: ignore # type: ignore # type: ignore # type: ignore
+            modelo_ajustado = modelo.fit(smoothing_level=0.8, smoothing_slope=0.2)  
             
             # Realizar el forecast para la ventana definida (semanal)
             pronostico = modelo_ajustado.forecast(forecast_window)
@@ -1228,7 +1396,7 @@ def Calcular_Demanda_ALGO_06(df, id_proveedor, etiqueta, ventana, current_date):
         return df_forecast  # Retornar DataFrame vacío
 
     # Redondear la predicción al entero más cercano y evitar valores negativos
-    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0) # type: ignore
+    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0)
     
     # Calcular el promedio semanal si forecast_window > 0
     df_forecast['Average'] = round(df_forecast['Forecast'] / ventana, 3) if ventana > 0 else 0
@@ -1382,11 +1550,11 @@ def get_forecast( id_proveedor, lbl_proveedor, period_lengh=30, algorithm='basic
     print('Dentro del get_forecast')
     print(f'FORECAST control: {id_proveedor} - {lbl_proveedor} - ventana: {period_lengh} - {algorithm} factores: {f1} - {f2} - {f3}')
     # Generar los datos de entrada
-    data, articulos = generar_datos(id_proveedor, lbl_proveedor, period_lengh) # type: ignore
+    data, articulos = generar_datos(id_proveedor, lbl_proveedor, period_lengh)
 
         # Determinar la fecha base
     if current_date is None:
-        current_date = data['Fecha'].max()  # type: ignore Se toma la última fecha en los datos
+        current_date = data['Fecha'].max()  # Se toma la última fecha en los datos
     else:
         current_date = pd.to_datetime(current_date)  # Se asegura que sea un objeto datetime
     print(f'Fecha actual {current_date}')
@@ -1551,7 +1719,7 @@ def generar_grafico_base64(dfv, articulo, sucursal, Forecast, Average, ventas_la
     ax[1, 1].grid(axis="y", linestyle="--", alpha=0.7)
 
     # Mostrar el gráfico
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # type: ignore # Ajustar para no solapar con el título
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])  # Ajustar para no solapar con el título
 
     # Guardar gráfico en base64
     buffer = BytesIO()
@@ -1589,9 +1757,9 @@ def insertar_graficos_forecast(algoritmo, name, id_proveedor):
     
     # Agregar la nueva columna de gráficos en df_forecast Iterando sobre todo el DATAFRAME
     df_forecast["GRAFICO"] = df_forecast.apply(
-        lambda row: generar_grafico_base64(df_ventas, row["Codigo_Articulo"], row["Sucursal"], row["Forecast"], row["Average"], row["ventas_last"], row["ventas_previous"], row["ventas_same_year"]) if not pd.isna(row["Codigo_Articulo"]) and not pd.isna(row["Sucursal"]) else None, # type: ignore # type: ignore
+        lambda row: generar_grafico_base64(df_ventas, row["Codigo_Articulo"], row["Sucursal"], row["Forecast"], row["Average"], row["ventas_last"], row["ventas_previous"], row["ventas_same_year"]) if not pd.isna(row["Codigo_Articulo"]) and not pd.isna(row["Sucursal"]) else None,
         axis=1
-    ) # type: ignore
+    )
     
     return df_forecast
 
@@ -1825,8 +1993,8 @@ def calcular_metricas_temporales(df, fecha_maxima):
 def calcular_ventas_mensuales_anio(dfv, articulo, sucursal, fecha_maxima):
     fecha_inicio_anio = fecha_maxima - pd.DateOffset(months=12)
     df_anual = dfv[(dfv["Codigo_Articulo"] == articulo) &
-                    (dfv["Sucursal"] == sucursal) &
-                    (dfv["Fecha"] >= fecha_inicio_anio)].copy()
+                   (dfv["Sucursal"] == sucursal) &
+                   (dfv["Fecha"] >= fecha_inicio_anio)].copy()
     df_anual["Mes"] = df_anual["Fecha"].dt.to_period("M").astype(str)
     ventas_mensuales = df_anual.groupby("Mes")["Unidades"].sum().reset_index()
     return {str(row["Mes"]): float(row["Unidades"]) for _, row in ventas_mensuales.iterrows()}
@@ -1881,8 +2049,8 @@ def preparar_stock_y_ofertas(dfs, dfo, articulo, sucursal, convertir_stock, conv
     return stock, ofertas
 
 def generar_grafico_json(dfv, dfs, dfo, articulo, sucursal, Forecast, Average,
-                        ventas_last, ventas_previous, ventas_same_year,
-                        convertir_stock_diario_a_dict, convertir_ofertas_a_dict):
+                          ventas_last, ventas_previous, ventas_same_year,
+                          convertir_stock_diario_a_dict, convertir_ofertas_a_dict):
 
     df_filtrado, fecha_maxima = filtrar_ventas_recientes(dfv, articulo, sucursal)
     df_filtrado = df_filtrado.groupby("Fecha", as_index=False).agg({"Unidades": "sum"})
@@ -1891,8 +2059,8 @@ def generar_grafico_json(dfv, dfs, dfo, articulo, sucursal, Forecast, Average,
     v30, vprev, vaanterior = calcular_metricas_temporales(df_filtrado, fecha_maxima)
     ventas_mensuales = calcular_ventas_mensuales_anio(dfv, articulo, sucursal, fecha_maxima)
     stock, ofertas = preparar_stock_y_ofertas(dfs, dfo, articulo, sucursal,
-                                            convertir_stock_diario_a_dict,
-                                            convertir_ofertas_a_dict)
+                                              convertir_stock_diario_a_dict,
+                                              convertir_ofertas_a_dict)
 
     return {
         "articulo": int(articulo),
@@ -1959,9 +2127,9 @@ def insertar_graficos_json(algoritmo, name, id_proveedor):
     
     # Agregar la nueva columna de gráficos en df_forecast Iterando sobre todo el DATAFRAME
     df_forecast["GRAFICO"] = df_forecast.apply(
-        lambda row: generar_grafico_json(df_ventas, row["Codigo_Articulo"], row["Sucursal"], row["Forecast"], row["Average"], row["ventas_last"], row["ventas_previous"], row["ventas_same_year"]) if not pd.isna(row["Codigo_Articulo"]) and not pd.isna(row["Sucursal"]) else None, # type: ignore
+        lambda row: generar_grafico_json(df_ventas, row["Codigo_Articulo"], row["Sucursal"], row["Forecast"], row["Average"], row["ventas_last"], row["ventas_previous"], row["ventas_same_year"]) if not pd.isna(row["Codigo_Articulo"]) and not pd.isna(row["Sucursal"]) else None,
         axis=1
-    ) # type: ignore
+    )
     
     return df_forecast
 
@@ -2007,7 +2175,7 @@ def graficar_desde_datos_json(datos_dict):
     ax[1, 1].set_title("Comparación de Ventas en 3 Períodos")
     ax[1, 1].grid(axis="y", linestyle="--", alpha=0.7)
 
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # type: ignore
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.show()
     
 def graficar_desde_json(path_json, forecast, ventas_last, ventas_previous, ventas_same_year):
@@ -2049,7 +2217,7 @@ def graficar_desde_json(path_json, forecast, ventas_last, ventas_previous, venta
     ax[1, 1].set_title("Comparación de Ventas en 3 Períodos")
     ax[1, 1].grid(axis="y", linestyle="--", alpha=0.7)
 
-    plt.tight_layout(rect=[0, 0.03, 1, 0.95]) # type: ignore
+    plt.tight_layout(rect=[0, 0.03, 1, 0.95])
     plt.show()
     
 
@@ -2585,7 +2753,7 @@ def get_execution_execute_result(result_id):
         row = cur.fetchone()
         cur.close()
         if row:
-            columns = [desc[0] for desc in cur.description] # type: ignore
+            columns = [desc[0] for desc in cur.description]
             return dict(zip(columns, row))
         return None
     except Exception as e:
