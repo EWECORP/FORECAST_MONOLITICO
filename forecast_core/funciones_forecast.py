@@ -168,6 +168,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
     folder = secrets["FOLDER_DATOS"]
     archivo_datos = f'{folder}/{etiqueta}.csv'
     archivo_articulos = f'{folder}/{etiqueta}_articulos.csv'
+    archivo_stock = f'{folder}/{etiqueta}_stock_sucursal.csv'
     
     # Verificar la fecha de modificación del archivo
     if os.path.exists(archivo_datos):
@@ -193,15 +194,17 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             print(f"-> Archivos eliminados por ser obsoletos: {archivo_datos}, {archivo_articulos}")
     else:
         print(f"-> Generando datos para ID: {id_proveedor}, Label: {etiqueta}")
-        # Aquí puedes incluir el código para generar los datos si no cumplen con la condición
+        # Aquí puedes incluir el código para generar los datos si no EXISTE el Archivo en el CACHE
         conn = Open_Diarco_Data()
 
-        # --- ARTÍCULOS --- NUEVA FUENTE GLOBAL 06/25
+        # --- ARTÍCULOS --- NUEVA FUENTE GLOBAL 06/25 -- SP_BASE_PRODUCTOS_VIGENTES
         query_articulos = f"""
-            SELECT *
+            SELECT c_sucu_empr, c_articulo, c_proveedor_primario, abastecimiento, habilitado,  
+                    cod_comprador AS c_comprador, 
+                    q_factor_compra, full_capacity_pallet, number_of_layers, number_of_boxes_per_layer
             FROM src.base_productos_vigentes
             WHERE c_proveedor_primario = {id_proveedor}
-            ORDER BY c_articulo, c_sucu_empr;
+            ORDER BY c_articulo, c_proveedor_primario;
         """
         articulos = pd.read_sql(query_articulos, conn) # type: ignore
         if articulos.empty:
@@ -210,6 +213,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             return None, None
 
         articulos.columns = articulos.columns.str.upper()
+        articulos.rename(columns={'COD_COMPRADOR': 'C_COMPRADOR'}, inplace=True)   # En la base nueva se llama distinto
         articulos['C_SUCU_EMPR'] = articulos['C_SUCU_EMPR'].astype(int)
         articulos['C_ARTICULO'] = articulos['C_ARTICULO'].astype(int)
         articulos['C_PROVEEDOR_PRIMARIO'] = articulos['C_PROVEEDOR_PRIMARIO'].astype(int)
@@ -221,7 +225,45 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         articulos['NUMBER_OF_LAYERS'] = articulos['NUMBER_OF_LAYERS'].astype(int)
         articulos['NUMBER_OF_BOXES_PER_LAYER'] = articulos['NUMBER_OF_BOXES_PER_LAYER'].astype(int)
         articulos.to_csv(archivo_articulos, index=False, encoding='utf-8')
-        print(f"---> Datos de Artículos guardados")
+        print(f"---> Datos de Artículos guardados")        
+        
+        # --- BASE STOCK --- NUEVA FUENTE GLOBAL 06/25 -- SP_BASE_STOCK_SUCURSAL
+        query_stock_sucursal = f"""
+            SELECT codigo_articulo, codigo_sucursal, codigo_proveedor, pedido_sgm, stock, 
+                pedido_pendiente, i_lista_calculado, factor_venta, precio_venta, precio_costo, 
+                q_dias_stock, transfer_pendiente, venta_unidades_1q, venta_unidades_2q
+            FROM src.base_stock_sucursal
+            WHERE codigo_proveedor = {id_proveedor}
+            ORDER BY codigo_articulo, codigo_articulo;
+        """
+        stock_sucursal = pd.read_sql(query_stock_sucursal, conn) # type: ignore
+        if stock_sucursal.empty:
+            print(f"❗ No se encontraron artículos de Stock_Sucursal para el proveedor {id_proveedor}.")
+            Close_Connection(conn)
+            return None, None
+
+        stock_sucursal.columns = stock_sucursal.columns.str.upper()
+        #  Cambiar tipos de datos
+        stock_sucursal['CODIGO_SUCURSAL'] = stock_sucursal['CODIGO_SUCURSAL'].astype(int)
+        stock_sucursal['CODIGO_ARTICULO'] = stock_sucursal['CODIGO_ARTICULO'].astype(int)
+        stock_sucursal['CODIGO_PROVEEDOR'] = stock_sucursal['CODIGO_PROVEEDOR'].astype(int)
+        stock_sucursal["PEDIDO_SGM"] = pd.to_numeric(stock_sucursal["PEDIDO_SGM"], errors="coerce").astype("Float64")
+        stock_sucursal["STOCK"] = pd.to_numeric(stock_sucursal["STOCK"], errors="coerce").astype("Float64")
+        stock_sucursal["PEDIDO_PENDIENTE"] = pd.to_numeric(stock_sucursal["PEDIDO_PENDIENTE"], errors="coerce").astype("Float64")
+        stock_sucursal["I_LISTA_CALCULADO"] = pd.to_numeric(stock_sucursal["I_LISTA_CALCULADO"], errors="coerce").astype("Float64")
+        stock_sucursal['FACTOR_VENTA'] = stock_sucursal['FACTOR_VENTA'].astype(int)
+        stock_sucursal['PRECIO_VENTA'] = pd.to_numeric(stock_sucursal['PRECIO_VENTA'], errors='coerce').astype('Float64')
+        stock_sucursal['PRECIO_COSTO'] = pd.to_numeric(stock_sucursal['PRECIO_COSTO'], errors='coerce').astype('Float64')
+        stock_sucursal['Q_DIAS_STOCK'] = pd.to_numeric(stock_sucursal['Q_DIAS_STOCK'], errors='coerce').astype('Int64')
+        stock_sucursal['TRANSFER_PENDIENTE'] = pd.to_numeric(stock_sucursal['TRANSFER_PENDIENTE'], errors='coerce').astype('Float64')
+        stock_sucursal['VENTA_UNIDADES_1Q'] = pd.to_numeric(stock_sucursal['VENTA_UNIDADES_1Q'], errors='coerce').astype('Float64')
+        stock_sucursal['VENTA_UNIDADES_2Q'] = pd.to_numeric(stock_sucursal['VENTA_UNIDADES_2Q'], errors='coerce').astype('Float64')
+
+        stock_sucursal.to_csv(archivo_stock, index=False, encoding='utf-8')
+        print(f"---> Datos de Stock Sucursal guardados")
+        
+        # -- COMBINAR ARTÍCULOS y STOCK --
+        articulos = pd.merge(articulos, stock_sucursal, left_on=['C_ARTICULO', 'C_SUCU_EMPR'], right_on=['CODIGO_ARTICULO', 'CODIGO_SUCURSAL'], how='inner')  
 
         # --- VENTAS ---
         query_ventas = f"""
@@ -233,7 +275,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             FROM src.t702_est_vtas_por_articulo v
             JOIN src.base_productos_vigentes a 
                 ON a.c_articulo = v.c_articulo
-                AND a.c_sucu_empr = v.c_sucu_empr::text
+                AND a.c_sucu_empr = v.c_sucu_empr
                 AND a.c_proveedor_primario = {id_proveedor}
             WHERE v.f_venta >= '2024-01-01'  
             ORDER BY fecha;
@@ -591,8 +633,8 @@ def get_precios(id_proveedor):
         "c_proveedor_primario": "C_PROVEEDOR_PRIMARIO",
         "c_articulo": "C_ARTICULO",
         "c_sucu_empr": "C_SUCU_EMPR",
-        "i_precio_vta": "I_PRECIO_VTA",
-        "i_costo_estadistico": "I_COSTO_ESTADISTICO"
+        "i_precio_vta": "PRECIO_VENTA",
+        "i_costo_estadistico": "PRECIO_COSTO"
         })
     
     precios['C_PROVEEDOR_PRIMARIO']= precios['C_PROVEEDOR_PRIMARIO'].astype(int)

@@ -168,33 +168,34 @@ def publicar_forecast_a_connexa(df_forecast_ext, forecast_execution_execute_id, 
                 row['Codigo_Articulo'],
                 row['Sucursal'],
                 id_proveedor,
-                row['Q_REPONER_INCLUIDO_SOBRE_STOCK'],
+                row['PEDIDO_SGM'],   # NUEVO Agregado para SGM
                 grafico_serializado,    # row['GRAFICO'],
                 #     quantity_stock, sales_last, sales_previous, sales_same_year, supplier_id, windows,
-                row.get('Q_STOCK', 0),  # No se si poner Q_STOCK o Stock
+                row.get('STOCK', 0),  # No se si poner Q_STOCK o Stock
                 row['ventas_last'],
                 row['ventas_previous'],
                 row['ventas_same_year'],
                 str(supplier_id),
                 row['ventana'],
                 #     deliveries_pending, quantity_confirmed, approved, base_purchase_price, distribution_unit, 
-                row.get('Q_TRANSF_PEND',0) + row.get('Q_TRANSF_EN_PREP',0), 
+                row.get('PEDIDO_PENDIENTE',0), 
                 0,
                 False,
                 row.get('I_LISTA_CALCULADO', 0),
-                row.get('Q_FACTOR_VTA_SUCU',1),
-                row.get('U_PISO_PALETIZADO', 1),
+                row.get('FACTOR_VENTA',1),
+                row.get('NUMBER_OF_BOXES_PER_LAYER', 1),
                 #     layer_pallet, number_layer_pallet, purchase_unit, sales_price, statistic_base_price,
-                row.get('U_ALTURA_PALETIZADO', 1),
-                row.get('Q_FACTOR_PROVEEDOR', 1),
-                row.get('I_PRECIO_VTA', 0),
-                row.get('I_COSTO_ESTADISTICO', 0),
+                row.get('NUMBER_OF_LAYERS', 1),
+                row.get('Q_FACTOR_COMPRA', 1),
+                row.get('PRECIO_VENTA', 0),
+                row.get('PRECIO_COSTO', 0),
                 #     window_sales_days
                 row.get('Q_DIAS_STOCK', 0),
-                row.get('Q_TRANSF_PEND', 0),  # <-- CERO FIJO PARA units_reserved
-                row.get('M_HABILITADO_SUCU', 'S').strip().upper() == 'N',  # Bloqueado para compra
-                row.get('Q_VTA_ULTIMOS_30DIAS', 0),  # Primeros 15
-                row.get('Q_VTA_ULTIMOS_15DIAS', 0),   # Ultimos 15
+                row.get('TRANSFER_PENDIENTE', 0),  # <-- CERO FIJO PARA units_reserved
+                row.get('HABILITADO', 1) == 0,   # True si está bloqueado para compra (revisar si es correcto)
+
+                row.get('VENTA_UNIDADES_2Q', 0),  # Primeros 15
+                row.get('VENTA_UNIDADES_1Q', 0),   # Ultimos 15
                 row.get('C_COMPRADOR', 0)   # Ultimos 15
             )
         
@@ -320,7 +321,7 @@ if __name__ == "__main__":
             print(f"-> Se actualizaron los site_ids: {id_proveedor}, Label: {name}")
             
             # Verificar columnas necesarias después del merge
-            columnas_requeridas = ['I_PRECIO_VTA', 'I_COSTO_ESTADISTICO']
+            columnas_requeridas = ['PRECIO_VENTA', 'PRECIO_COSTO']
             for col in columnas_requeridas:
                 if col not in df_forecast_ext.columns:
                     print(f"❌ ERROR: Falta la columna requerida '{col}' en df_forecast_ext para el proveedor {id_proveedor}")
@@ -328,7 +329,7 @@ if __name__ == "__main__":
                     raise ValueError(f"Column '{col}' missing in df_forecast_ext. No se puede continuar.")
             
             # Hacer merge solo si no existen las columnas de precios y costos
-            if 'I_PRECIO_VTA' not in df_forecast_ext.columns or 'I_COSTO_ESTADISTICO' not in df_forecast_ext.columns:
+            if 'PRECIO_VENTA' not in df_forecast_ext.columns or 'PRECIO_COSTO' not in df_forecast_ext.columns:
                 #print(f"❌ ERROR: Falta la columna requerida '{col}' procedemos a actualizar {id_proveedor}")
                 precio = get_precios(id_proveedor)
                 precio['C_ARTICULO'] = precio['C_ARTICULO'].astype(int)
@@ -344,8 +345,8 @@ if __name__ == "__main__":
                 print(f"⚠️ El DataFrame ya contiene precios y costos. Merge evitado para {id_proveedor}")            
 
             # Cálculo de métricas x Línea en miles
-            df_forecast_ext['Forecast_VENTA'] = (df_forecast_ext['Forecast'] * df_forecast_ext['I_PRECIO_VTA'] / 1000).round(2)
-            df_forecast_ext['Forecast_COSTO'] = (df_forecast_ext['Forecast'] * df_forecast_ext['I_COSTO_ESTADISTICO'] / 1000).round(2)
+            df_forecast_ext['Forecast_VENTA'] = (df_forecast_ext['Forecast'] * df_forecast_ext['PRECIO_VENTA'] / 1000).round(2)
+            df_forecast_ext['Forecast_COSTO'] = (df_forecast_ext['Forecast'] * df_forecast_ext['PRECIO_COSTO'] / 1000).round(2)
             df_forecast_ext['MARGEN'] = (df_forecast_ext['Forecast_VENTA'] - df_forecast_ext['Forecast_COSTO'])
 
             # Guardar CSV actualizado

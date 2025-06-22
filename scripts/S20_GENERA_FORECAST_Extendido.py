@@ -50,6 +50,9 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
 
     # Recuperar Maestro de Artículos
     articulos = pd.read_csv(f'{folder}/{name}_articulos.csv')
+    
+    # Recuperar Maestro de Artículos
+    stock_sucursal = pd.read_csv(f'{folder}/{name}_stock_sucursal.csv')
 
     # Recuperando Forecast Calculado
     df_forecast = pd.read_csv(f'{folder}/{algoritmo}_Solicitudes_Compra.csv')
@@ -92,18 +95,30 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
         #'Q_BULTOS_PENDIENTE_OC', 'Q_PESO_PENDIENTE_OC', 'Q_UNID_PESO_PEND_RECEP_TRANSF',  
         #'M_FOLDER','C_CLASIFICACION_COMPRA',  'M_BAJA', 'Q_VENTA_ACUM_30',
     
-    # Agregar datos de reposición
-    columnas_seleccionadas = [
-        'C_PROVEEDOR_PRIMARIO', 'C_COMPRADOR', 'C_ARTICULO', 'C_SUCU_EMPR', 'I_PRECIO_VTA', 'I_COSTO_ESTADISTICO',
-        'Q_FACTOR_VTA_SUCU', 'Q_STOCK_UNIDADES', 'Q_STOCK_PESO', 'M_VENDE_POR_PESO','Q_STOCK', 'F_ULTIMA_VTA',
-        'Q_VTA_ULTIMOS_15DIAS', 'Q_VTA_ULTIMOS_30DIAS', 'Q_TRANSF_PEND', 'Q_TRANSF_EN_PREP',
-        'C_FAMILIA', 'C_RUBRO', 'Q_DIAS_CON_STOCK', 'M_OFERTA_SUCU', 'M_HABILITADO_SUCU', 
-        'Q_REPONER', 'Q_REPONER_INCLUIDO_SOBRE_STOCK', 'Q_VENTA_DIARIA_NORMAL', 
-        'Q_DIAS_STOCK', 'Q_DIAS_SOBRE_STOCK', 'Q_DIAS_ENTREGA_PROVEEDOR', 
-        'Q_FACTOR_PROVEEDOR', 'U_PISO_PALETIZADO', 'U_ALTURA_PALETIZADO', 'I_LISTA_CALCULADO'
-    ]
-    df_nuevo = articulos[columnas_seleccionadas].copy()
+    # Agregar datos de reposición DESDE NUEVA FUENTE SP
+    # columnas_seleccionadas = [
+    #     'C_SUCU_EMPR','C_ARTICULO','C_PROVEEDOR_PRIMARIO','ABASTECIMIENTO','COD_CD','HABILITADO','FECHA_REGISTRO',
+    #     'FECHA_BAJA','UNID_TRANSFERENCIA','Q_UNID_TRANSFERENCIA','PEDIDO_MIN','FRENTE_LINEAL','CAPACID_GONDOLA','STOCK_MINIMO',
+    #     'C_COMPRADOR','Q_FACTOR_COMPRA','PROMOCION','ACTIVE_FOR_PURCHASE','ACTIVE_FOR_SALE','ACTIVE_ON_MIX','DELIVERED_ID','PRODUCT_BASE_ID',
+    #     'OWN_PRODUCTION','FULL_CAPACITY_PALLET','NUMBER_OF_LAYERS','NUMBER_OF_BOXES_PER_LAYER'
+
+    #     # ###################     VERSIÖN VIEJA     #################################    
+    #     # 'C_PROVEEDOR_PRIMARIO', 'C_COMPRADOR', 'C_ARTICULO', 'C_SUCU_EMPR', 'I_PRECIO_VTA', 'I_COSTO_ESTADISTICO',
+    #     # 'Q_FACTOR_VTA_SUCU', 'Q_STOCK_UNIDADES', 'Q_STOCK_PESO', 'M_VENDE_POR_PESO','Q_STOCK', 'F_ULTIMA_VTA',
+    #     # 'Q_VTA_ULTIMOS_15DIAS', 'Q_VTA_ULTIMOS_30DIAS', 'Q_TRANSF_PEND', 'Q_TRANSF_EN_PREP',
+    #     # 'C_FAMILIA', 'C_RUBRO', 'Q_DIAS_CON_STOCK', 'M_OFERTA_SUCU', 'M_HABILITADO_SUCU', 
+    #     # 'Q_REPONER', 'Q_REPONER_INCLUIDO_SOBRE_STOCK', 'Q_VENTA_DIARIA_NORMAL', 
+    #     # 'Q_DIAS_STOCK', 'Q_DIAS_SOBRE_STOCK', 'Q_DIAS_ENTREGA_PROVEEDOR', 
+    #     # 'Q_FACTOR_PROVEEDOR', 'U_PISO_PALETIZADO', 'U_ALTURA_PALETIZADO', 'I_LISTA_CALCULADO'
+    # ]
+    # # df_nuevo = articulos[columnas_seleccionadas].copy()
+    
+    df_nuevo = articulos.copy()   # Articulos ya tiene SP_BASE_ARTICULOS_SUCURSAL
+    # -- COMBINAR ARTÍCULOS y STOCK --
+    df_nuevo = pd.merge(df_nuevo, stock_sucursal, left_on=['C_ARTICULO', 'C_SUCU_EMPR'], right_on=['CODIGO_ARTICULO', 'CODIGO_SUCURSAL'], how='inner')
+    df_nuevo.drop(columns=['CODIGO_ARTICULO', 'CODIGO_SUCURSAL'], inplace=True) 
     df_nuevo['C_SUCU_EMPR'] = df_nuevo['C_SUCU_EMPR'].astype(int)
+    df_nuevo['C_ARTICULO'] = df_nuevo['C_ARTICULO'].astype(int)
 
     df_merged = df_merged.merge(
         df_nuevo,
