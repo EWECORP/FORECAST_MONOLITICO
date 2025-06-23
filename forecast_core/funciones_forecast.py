@@ -295,7 +295,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
                 v.c_articulo as Codigo_Articulo, 
                 v.c_sucu_empr as Sucursal, 
                 v.q_unidades_vendidas as Unidades
-            FROM src.t702_est_vtas_por_articulo v
+            FROM src.t702_est_vtas_por_articulo_dbarrio v
             JOIN src.base_productos_vigentes a 
                 ON a.c_articulo = v.c_articulo
                 AND a.c_sucu_empr = v.c_sucu_empr
