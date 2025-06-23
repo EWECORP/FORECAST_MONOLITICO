@@ -265,8 +265,8 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         # -- COMBINAR ARTÍCULOS y STOCK --
         articulos = pd.merge(articulos, stock_sucursal, left_on=['C_ARTICULO', 'C_SUCU_EMPR'], right_on=['CODIGO_ARTICULO', 'CODIGO_SUCURSAL'], how='inner')  
 
-        # --- VENTAS ---
-        query_ventas = f"""
+        # --- VENTAS --- DIARCO + BARRIO ( En 2 Bases de Datos distintas )
+        query_ventas_diarco = f"""
             SELECT 
                 v.f_venta AS Fecha, 
                 v.c_articulo as Codigo_Articulo, 
@@ -277,14 +277,47 @@ def generar_datos(id_proveedor, etiqueta, ventana):
                 ON a.c_articulo = v.c_articulo
                 AND a.c_sucu_empr = v.c_sucu_empr
                 AND a.c_proveedor_primario = {id_proveedor}
-            WHERE v.f_venta >= '2024-01-01'  
+            WHERE v.f_venta >= '2024-06-01'  
             ORDER BY fecha;
         """
-        demanda = pd.read_sql(query_ventas, conn) # type: ignore
-        if demanda.empty:
+        ventas_d = pd.read_sql(query_ventas_diarco, conn) # type: ignore
+        if ventas_d.empty:
             print(f"⚠️ No se encontraron ventas para el proveedor {id_proveedor}.")
             Close_Connection(conn)
             return None, articulos
+        
+         # --- VENTAS --- BARRIO ( En 2 Bases de Datos distintas )
+        query_ventas_barrio = f"""
+            SELECT 
+                v.f_venta AS Fecha, 
+                v.c_articulo as Codigo_Articulo, 
+                v.c_sucu_empr as Sucursal, 
+                v.q_unidades_vendidas as Unidades
+            FROM src.t702_est_vtas_por_articulo v
+            JOIN src.base_productos_vigentes a 
+                ON a.c_articulo = v.c_articulo
+                AND a.c_sucu_empr = v.c_sucu_empr
+                AND a.c_proveedor_primario = {id_proveedor}
+            WHERE v.f_venta >= '2024-06-01'  
+            ORDER BY fecha;
+        """
+        ventas_b = pd.read_sql(query_ventas_barrio, conn) # type: ignore
+        if ventas_b.empty:
+            print(f"⚠️ No se encontraron ventas para el proveedor {id_proveedor}.")
+            Close_Connection(conn)
+            return None, articulos
+        
+        ## Unir las dos tablas de ventas
+        ventas_d['Sucursal'] = ventas_d['Sucursal'].astype(int)
+        ventas_b['Sucursal'] = ventas_b['Sucursal'].astype(int)
+        ventas_d['Codigo_Articulo'] = ventas_d['Codigo_Articulo'].astype(int)
+        ventas_b['Codigo_Articulo'] = ventas_b['Codigo_Articulo'].astype(int)
+        ventas_d['Fecha'] = pd.to_datetime(ventas_d['Fecha'])
+        ventas_b['Fecha'] = pd.to_datetime(ventas_b['Fecha'])   
+        demanda = pd.concat([ventas_d, ventas_b], ignore_index=True)  # Unir las dos tablas de ventas
+        
+        if demanda.empty:
+            print(f"⚠️ No se encontraron ventas combinadas para el proveedor {id_proveedor}.")
 
         demanda = demanda.rename(columns={
             "fecha": "Fecha",
