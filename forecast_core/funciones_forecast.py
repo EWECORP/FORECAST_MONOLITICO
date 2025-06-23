@@ -286,6 +286,8 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             Close_Connection(conn)
             return None, articulos
         
+        print(ventas_d.length)
+        
          # --- VENTAS --- BARRIO ( En 2 Bases de Datos distintas )
         query_ventas_barrio = f"""
             SELECT 
@@ -308,12 +310,12 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             return None, articulos
         
         ## Unir las dos tablas de ventas
-        ventas_d['Sucursal'] = ventas_d['Sucursal'].astype(int)
-        ventas_b['Sucursal'] = ventas_b['Sucursal'].astype(int)
-        ventas_d['Codigo_Articulo'] = ventas_d['Codigo_Articulo'].astype(int)
-        ventas_b['Codigo_Articulo'] = ventas_b['Codigo_Articulo'].astype(int)
-        ventas_d['Fecha'] = pd.to_datetime(ventas_d['Fecha'])
-        ventas_b['Fecha'] = pd.to_datetime(ventas_b['Fecha'])   
+        ventas_d['sucursal'] = ventas_d['sucursal'].astype(int)
+        ventas_b['sucursal'] = ventas_b['sucursal'].astype(int)
+        ventas_d['codigo_articulo'] = ventas_d['codigo_articulo'].astype(int)
+        ventas_b['codigo_articulo'] = ventas_b['codigo_articulo'].astype(int)
+        ventas_d['fecha'] = pd.to_datetime(ventas_d['fecha'])
+        ventas_b['fecha'] = pd.to_datetime(ventas_b['fecha'])   
         demanda = pd.concat([ventas_d, ventas_b], ignore_index=True)  # Unir las dos tablas de ventas
         
         if demanda.empty:
