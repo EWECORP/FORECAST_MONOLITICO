@@ -70,6 +70,8 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
     products = pd.read_sql("SELECT ext_code, description, id FROM public.fnd_product", conn) # type: ignore
     products = products[pd.to_numeric(products['ext_code'], errors='coerce').notna()].copy()
     products['ext_code'] = products['ext_code'].astype(int)
+    assert products['ext_code'].is_unique, "ERROR: productos.ext_code tiene duplicados"
+
 
     Close_Connection(conn)
 
@@ -91,27 +93,6 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
             f"{folder}/{algoritmo}_Errores_Missing_UUID.csv", index=False)
         raise ValueError("Existen artículos o sucursales no presentes en Connexa. Revisión necesaria.")
 
-    # Excluimos estos campos
-        #'Q_BULTOS_PENDIENTE_OC', 'Q_PESO_PENDIENTE_OC', 'Q_UNID_PESO_PEND_RECEP_TRANSF',  
-        #'M_FOLDER','C_CLASIFICACION_COMPRA',  'M_BAJA', 'Q_VENTA_ACUM_30',
-    
-    # Agregar datos de reposición DESDE NUEVA FUENTE SP
-    # columnas_seleccionadas = [
-    #     'C_SUCU_EMPR','C_ARTICULO','C_PROVEEDOR_PRIMARIO','ABASTECIMIENTO','COD_CD','HABILITADO','FECHA_REGISTRO',
-    #     'FECHA_BAJA','UNID_TRANSFERENCIA','Q_UNID_TRANSFERENCIA','PEDIDO_MIN','FRENTE_LINEAL','CAPACID_GONDOLA','STOCK_MINIMO',
-    #     'C_COMPRADOR','Q_FACTOR_COMPRA','PROMOCION','ACTIVE_FOR_PURCHASE','ACTIVE_FOR_SALE','ACTIVE_ON_MIX','DELIVERED_ID','PRODUCT_BASE_ID',
-    #     'OWN_PRODUCTION','FULL_CAPACITY_PALLET','NUMBER_OF_LAYERS','NUMBER_OF_BOXES_PER_LAYER'
-
-    #     # ###################     VERSIÖN VIEJA     #################################    
-    #     # 'C_PROVEEDOR_PRIMARIO', 'C_COMPRADOR', 'C_ARTICULO', 'C_SUCU_EMPR', 'I_PRECIO_VTA', 'I_COSTO_ESTADISTICO',
-    #     # 'Q_FACTOR_VTA_SUCU', 'Q_STOCK_UNIDADES', 'Q_STOCK_PESO', 'M_VENDE_POR_PESO','Q_STOCK', 'F_ULTIMA_VTA',
-    #     # 'Q_VTA_ULTIMOS_15DIAS', 'Q_VTA_ULTIMOS_30DIAS', 'Q_TRANSF_PEND', 'Q_TRANSF_EN_PREP',
-    #     # 'C_FAMILIA', 'C_RUBRO', 'Q_DIAS_CON_STOCK', 'M_OFERTA_SUCU', 'M_HABILITADO_SUCU', 
-    #     # 'Q_REPONER', 'Q_REPONER_INCLUIDO_SOBRE_STOCK', 'Q_VENTA_DIARIA_NORMAL', 
-    #     # 'Q_DIAS_STOCK', 'Q_DIAS_SOBRE_STOCK', 'Q_DIAS_ENTREGA_PROVEEDOR', 
-    #     # 'Q_FACTOR_PROVEEDOR', 'U_PISO_PALETIZADO', 'U_ALTURA_PALETIZADO', 'I_LISTA_CALCULADO'
-    # ]
-    # # df_nuevo = articulos[columnas_seleccionadas].copy()
     
     df_nuevo = articulos.copy()   # Articulos ya tiene SP_BASE_ARTICULOS_SUCURSAL
     # -- COMBINAR ARTÍCULOS y STOCK --
@@ -120,6 +101,14 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
     df_nuevo['C_SUCU_EMPR'] = df_nuevo['C_SUCU_EMPR'].astype(int)
     df_nuevo['C_ARTICULO'] = df_nuevo['C_ARTICULO'].astype(int)
 
+    duplicados = df_nuevo[df_nuevo.duplicated(['C_SUCU_EMPR', 'C_ARTICULO'], keep=False)]
+    if not duplicados.empty:
+        print(f"🚨 Hay {len(duplicados)} filas duplicadas en df_nuevo por artículo+sucursal")
+        duplicados.to_csv(f"{folder}/Duplicados_df_nuevo.csv", index=False)
+
+        #Elimino Duplicados
+        df_nuevo = df_nuevo.drop_duplicates(subset=['C_SUCU_EMPR', 'C_ARTICULO'])
+
     df_merged = df_merged.merge(
         df_nuevo,
         left_on=['Sucursal', 'Codigo_Articulo'],
@@ -127,6 +116,9 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
         how='left'
     )
     df_merged.drop(columns=['C_SUCU_EMPR', 'C_ARTICULO'], inplace=True)
+
+    print(f"🔍 Forecast original: {len(df_forecast)} registros")
+    print(f"📈 Forecast extendido: {len(df_merged)} registros")
 
     return df_merged
 

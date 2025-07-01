@@ -199,7 +199,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
 
         # --- ARTÍCULOS --- NUEVA FUENTE GLOBAL 06/25 -- SP_BASE_PRODUCTOS_VIGENTES
         query_articulos = f"""
-            SELECT c_sucu_empr, c_articulo, c_proveedor_primario, abastecimiento, habilitado,  
+            SELECT DISTINCT c_sucu_empr, c_articulo, c_proveedor_primario, abastecimiento, habilitado,  
                     cod_comprador AS c_comprador, 
                     q_factor_compra, full_capacity_pallet, number_of_layers, number_of_boxes_per_layer
             FROM src.base_productos_vigentes
@@ -286,8 +286,6 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             Close_Connection(conn)
             return None, articulos
         
-        print(ventas_d.length)
-        
          # --- VENTAS --- BARRIO ( En 2 Bases de Datos distintas )
         query_ventas_barrio = f"""
             SELECT 
@@ -309,6 +307,9 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             Close_Connection(conn)
             return None, articulos
         
+        ventas_d.columns = ventas_d.columns.str.lower()
+        ventas_b.columns = ventas_b.columns.str.lower()
+        
         ## Unir las dos tablas de ventas
         ventas_d['sucursal'] = ventas_d['sucursal'].astype(int)
         ventas_b['sucursal'] = ventas_b['sucursal'].astype(int)
@@ -328,13 +329,17 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             "unidades": "Unidades"
         })
 
+        # Guardar solo VENTAS 
+        demanda.to_csv(f'{folder}/{etiqueta}_Demanda.csv', index=False, encoding='utf-8')
+        print(f"---> Datos de Ventas guardados")
+
         # --- MERGE ---
         data = pd.merge(
             articulos,
-            demanda,
-            left_on=['C_ARTICULO', 'C_SUCU_EMPR'],
-            right_on=['Codigo_Articulo', 'Sucursal'],
-            how='inner'
+            demanda,  
+            left_on=['C_ARTICULO', 'C_SUCU_EMPR'],          
+            right_on=['Codigo_Articulo', 'Sucursal'],            
+            how='inner'  # Solo traer los productos que están en AMBOS ARCHIVOS
         )
 
         if data.empty:
@@ -349,11 +354,16 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         data['Sucursal'] = data['Sucursal'].astype(int)
         data.to_csv(archivo_datos, index=False, encoding='utf-8')
         print(f"---> Datos de RECUPERACIÓN guardados")
+               
+        
+        # Guardar los datos Compactos de VENTAS en un archivo CSV con el nombre del Proveedor y sufijo _Ventas
+        file_path = f'{folder}/{etiqueta}_Ventas.csv'
+        print(f"[DEBUG] Ruta destino definida en .env: {folder}")
 
-        # Compactar solo VENTAS
-        ventas = data[['Fecha', 'Codigo_Articulo', 'Sucursal', 'Unidades']]
-        ventas.to_csv(f'{folder}/{etiqueta}_Ventas.csv', index=False, encoding='utf-8')
-        print(f"---> Datos de Ventas guardados")
+        # Eliminar Columnas Innecesarias
+        data = data[['Fecha', 'Codigo_Articulo', 'Sucursal', 'Unidades']]
+        data.to_csv(file_path, index=False, encoding='utf-8')
+        print(f"---> Datos de Ventas guardados: {file_path}")  
 
         Close_Connection(conn)
         return data, articulos
