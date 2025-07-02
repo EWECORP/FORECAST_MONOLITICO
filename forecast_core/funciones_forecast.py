@@ -282,9 +282,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         """
         ventas_d = pd.read_sql(query_ventas_diarco, conn) # type: ignore
         if ventas_d.empty:
-            print(f"⚠️ No se encontraron ventas para el proveedor {id_proveedor}.")
-            Close_Connection(conn)
-            return None, articulos
+            print(f"⚠️ No se encontraron ventas DIARCO para el proveedor {id_proveedor}.")
         
          # --- VENTAS --- BARRIO ( En 2 Bases de Datos distintas )
         query_ventas_barrio = f"""
@@ -303,24 +301,35 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         """
         ventas_b = pd.read_sql(query_ventas_barrio, conn) # type: ignore
         if ventas_b.empty:
-            print(f"⚠️ No se encontraron ventas para el proveedor {id_proveedor}.")
-            Close_Connection(conn)
-            return None, articulos
+            print(f"⚠️ No se encontraron ventas DIARCO BARRIO para el proveedor {id_proveedor}.")
         
-        ventas_d.columns = ventas_d.columns.str.lower()
-        ventas_b.columns = ventas_b.columns.str.lower()
-        
-        ## Unir las dos tablas de ventas
-        ventas_d['sucursal'] = ventas_d['sucursal'].astype(int)
-        ventas_b['sucursal'] = ventas_b['sucursal'].astype(int)
-        ventas_d['codigo_articulo'] = ventas_d['codigo_articulo'].astype(int)
-        ventas_b['codigo_articulo'] = ventas_b['codigo_articulo'].astype(int)
-        ventas_d['fecha'] = pd.to_datetime(ventas_d['fecha'])
-        ventas_b['fecha'] = pd.to_datetime(ventas_b['fecha'])   
-        demanda = pd.concat([ventas_d, ventas_b], ignore_index=True)  # Unir las dos tablas de ventas
-        
-        if demanda.empty:
-            print(f"⚠️ No se encontraron ventas combinadas para el proveedor {id_proveedor}.")
+        # Convertir columnas a minúsculas si hay datos
+        if not ventas_d.empty:
+            ventas_d.columns = ventas_d.columns.str.lower()
+        if not ventas_b.empty:
+            ventas_b.columns = ventas_b.columns.str.lower()
+       
+        # Transformar tipos de datos si hay datos
+        if not ventas_d.empty:
+            ventas_d['sucursal'] = ventas_d['sucursal'].astype(int)
+            ventas_d['codigo_articulo'] = ventas_d['codigo_articulo'].astype(int)
+            ventas_d['fecha'] = pd.to_datetime(ventas_d['fecha'])
+
+        if not ventas_b.empty:
+            ventas_b['sucursal'] = ventas_b['sucursal'].astype(int)
+            ventas_b['codigo_articulo'] = ventas_b['codigo_articulo'].astype(int)
+            ventas_b['fecha'] = pd.to_datetime(ventas_b['fecha'])
+
+        # Concatenar los datos
+        if not ventas_d.empty and not ventas_b.empty:
+            demanda = pd.concat([ventas_d, ventas_b], ignore_index=True)
+        elif not ventas_d.empty:
+            demanda = ventas_d.copy()
+        elif not ventas_b.empty:
+            demanda = ventas_b.copy()
+        else:
+            print(f"⚠️ No se encontraron ventas para el proveedor {id_proveedor} ni en DIARCO ni en BARRIO.")
+            demanda = pd.DataFrame(columns=['fecha', 'codigo_articulo', 'sucursal', 'unidades'])  # DataFrame vacío con columnas esperadas
 
         demanda = demanda.rename(columns={
             "fecha": "Fecha",
