@@ -162,6 +162,79 @@ def Close_Connection(conn):
 def id_aleatorio():       # Helper para generar identificadores únicos
     return str(uuid.uuid4())
 
+##  ----------------------------------------------------------------
+# Rutina que Evita Errores de NULL y NAN
+
+def preparar_dataframe_forecast(df: pd.DataFrame, columnas_tipo: dict, label: str = "") -> pd.DataFrame:
+    """
+    Prepara un DataFrame para forecasting:
+    - Reemplaza NaN, inf y -inf por 0 en columnas numéricas.
+    - Convierte los tipos de datos según el diccionario provisto.
+    - Loguea columnas con datos faltantes.
+
+    Args:
+        df (pd.DataFrame): DataFrame original.
+        columnas_tipo (dict): Diccionario con columnas y tipos deseados. Ej: {"COL1": "Int64", "COL2": "Float64"}
+        label (str): Etiqueta para logging (opcional).
+
+    Returns:
+        pd.DataFrame: DataFrame preparado.
+    """
+    print(f"🧪 Validando y preparando DataFrame para {label}...")
+
+    # Estandarizar nombres
+    df.columns = df.columns.str.upper()
+
+    # Detectar nulos o infinitos antes del reemplazo
+    for col in df.columns:
+        if df[col].dtype in ["float64", "float32", "int64", "int32", "Int64", "Float64"]:
+            if df[col].isna().any() or np.isinf(df[col]).any():
+                print(f"⚠️ [{label}] Valores no finitos en columna '{col}' — serán reemplazados por 0")
+
+    # Reemplazo en todas las columnas numéricas
+    df = df.replace([np.inf, -np.inf], np.nan)
+    df[df.select_dtypes(include=["number"]).columns] = df.select_dtypes(include=["number"]).fillna(0)
+
+    # Conversión de tipos según especificación
+    for col, tipo in columnas_tipo.items():
+        if col in df.columns:
+            try:
+                if tipo.startswith("Float"):
+                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(tipo)
+                elif tipo.startswith("Int"):
+                    df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0).astype(tipo)
+                elif tipo == "int":
+                    df[col] = df[col].astype(int)
+                else:
+                    df[col] = df[col].astype(tipo)
+            except Exception as e:
+                print(f"❌ Error al convertir la columna '{col}' a tipo {tipo}: {e}")
+        else:
+            print(f"⚠️ [{label}] Columna esperada '{col}' no encontrada en el DataFrame.")
+
+    print(f"✅ DataFrame listo para forecasting: {label}")
+    return df
+# MODO DE USO
+# Diccionario de columnas y sus tipos esperados
+# tipos_stock = {
+#     "CODIGO_SUCURSAL": "int",
+#     "CODIGO_ARTICULO": "int",
+#     "CODIGO_PROVEEDOR": "int",
+#     "PEDIDO_SGM": "Float64",
+#     "STOCK": "Float64",
+#     "PEDIDO_PENDIENTE": "Float64",
+#     "I_LISTA_CALCULADO": "Float64",
+#     "FACTOR_VENTA": "Int64",
+#     "PRECIO_VENTA": "Float64",
+#     "PRECIO_COSTO": "Float64",
+#     "Q_DIAS_STOCK": "Int64",
+#     "TRANSFER_PENDIENTE": "Float64",
+#     "VENTA_UNIDADES_1Q": "Float64",
+#     "VENTA_UNIDADES_2Q": "Float64"
+# }
+# stock_sucursal = preparar_dataframe_forecast(stock_sucursal, tipos_stock, label="Stock_Sucursal")
+
+
 # Nueva Rutina al MIGRAR a PostgreSQL y Ejecución REMOTA
 # 2025-05-16 Se agrega c_comprador
 def generar_datos(id_proveedor, etiqueta, ventana):
@@ -241,6 +314,10 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             print(f"❗ No se encontraron artículos de Stock_Sucursal para el proveedor {id_proveedor}.")
             Close_Connection(conn)
             return None, None
+        
+        # Limpieza general antes de conversión
+        stock_sucursal = stock_sucursal.replace([np.inf, -np.inf], np.nan)
+        stock_sucursal = stock_sucursal.fillna(0)
 
         stock_sucursal.columns = stock_sucursal.columns.str.upper()
         #  Cambiar tipos de datos
