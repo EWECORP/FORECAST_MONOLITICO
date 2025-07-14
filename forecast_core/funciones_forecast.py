@@ -1430,8 +1430,88 @@ def Calcular_Demanda_ALGO_06(df, id_proveedor, etiqueta, ventana, current_date):
     return df_forecast
 
 ###----------------------------------------------------------------
+# ALGO_07 Demanda Simple x Factor -  Fecha de Base Movil
+###----------------------------------------------------------------
+def Calcular_Demanda_ALGO_07(df, id_proveedor, etiqueta, periodo, current_date,  factor, fecha_base):
+    print('Dentro del Calcular_Demanda_ALGO_07')
+    print(f'FORECAST control: {id_proveedor} - {etiqueta} - ventana: {periodo} - Fecha Actual: {current_date} - factor: {factor}  - Fecha de Base: {fecha_base}')
+    
+    start_time = time.time()
+    
+    # Convertir Parámetros a INT o FLOAT
+    period_length = int(periodo)  # Asegurarse de que sea un entero
+    base_date = pd.to_datetime(fecha_base, errors='coerce')  # Convertir a datetime, manejar errores
+    factor = float(factor)
+
+    # Convertir la columna 'Fecha' a tipo datetime si no lo está
+    if not pd.api.types.is_datetime64_any_dtype(df['Fecha']):
+        df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
+        df.dropna(subset=['Fecha'], inplace=True)  # Eliminar filas con fechas inválidas
+    
+    # Definir rango de fechas
+    last_period_start = base_date     
+    last_period_end = base_date + pd.Timedelta(days=period_length)
+
+    # Filtrar los datos para cada uno de los períodos
+    df_last = df[(df['Fecha'] >= last_period_start) & (df['Fecha'] <= last_period_end)]
+
+    # Agregar las ventas (unidades) por artículo y sucursal para cada período
+    sales_last = df_last.groupby(['Codigo_Articulo', 'Sucursal'])['Unidades'] \
+                        .sum().reset_index().rename(columns={'Unidades': 'ventas_last'})
+
+    # Unir la información de los tres períodos
+    df_forecast = sales_last.copy() 
+    df_forecast.fillna(0, inplace=True)
+
+    # Calcular la demanda estimada como el promedio de las ventas del período multiplicado pro el factor
+    df_forecast['Forecast'] = (df_forecast['ventas_last'] * factor)       #Aplico el peso absoluto de los factores.
+    
+    elapsed = round(time.time() - start_time, 2)
+    print(f"🖼️ Preparación de Datos - Tiempo: {elapsed} seg")
+    # Redondear la predicción al entero más cercano  y eliminar los Negativos
+    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0) # type: ignore
+    df_forecast['Average'] = round(df_forecast['Forecast'] /period_length ,3)
+    
+    # Agregar las columnas id_proveedor y ventana
+    df_forecast['id_proveedor'] = id_proveedor
+    df_forecast['algoritmo'] = 'ALGO_07'
+    df_forecast['ventana'] = period_length
+    df_forecast['f1'] = factor
+    df_forecast['f2'] = 'na'
+    df_forecast['f3'] = 'na'
+    df_forecast['ventas_previous'] = 0  # Por compatibilidad con la estructura
+    df_forecast['ventas_same_year'] = 0
+    df_forecast['Fecha_Pronostico'] = base_date 
+
+    # Reordenar las columnas según la especificación
+    df_forecast = df_forecast[['id_proveedor', 'Codigo_Articulo', 'Sucursal',  'algoritmo', 'ventana', 'f1', 'f2', 'f3', 'Fecha_Pronostico',
+                            'Forecast', 'Average','ventas_last', 'ventas_previous', 'ventas_same_year']]
+    
+    elapsed = round(time.time() - start_time, 2)
+    print(f"🖼️ Demanda Calculada - Tiempo: {elapsed} seg")
+    return df_forecast
+
+
+    # Borrar Columnas Innecesarias
+    # forecast_df.drop(columns=['ventas_last', 'ventas_previous', 'ventas_same_year'], inplace=True)
+
+###----------------------------------------------------------------
 # RUTINAS DE PROCESAMIENTO DE ALGORITMOS
-###----------------------------------------------------------------  
+###----------------------------------------------------------------
+
+def Procesar_ALGO_07(data, proveedor, etiqueta, periodo, current_date, factor, fecha_base):    
+    # Asignar valores por defecto si los factores no están definidos
+    factor = 1 if factor is None else factor
+
+    print(f'--> Procesar_ALGO_07 Período {periodo} - Factores Utilizados: Factor: {factor} Fecha Base: {fecha_base}')
+        
+    df_forecast = Calcular_Demanda_ALGO_07(data, proveedor, etiqueta,  periodo, current_date, factor, fecha_base)
+    df_forecast['Codigo_Articulo']= df_forecast['Codigo_Articulo'].astype(int)
+    df_forecast['Sucursal']= df_forecast['Sucursal'].astype(int)
+    df_forecast.to_csv(f'{folder}/{etiqueta}_ALGO_07_Solicitudes_Compra.csv', index=False)   # Exportar el resultado a un CSV para su posterior procesamiento
+    
+    Exportar_Pronostico(df_forecast, proveedor, etiqueta, 'ALGO_07')  # Impactar Datos en la Interface        
+    return  
 
 def Procesar_ALGO_06(data, proveedor, etiqueta, ventana, fecha):
     print(f'--> Procesar_ALGO_06 ventana {ventana} - fecha {fecha} - No usa Factores')
@@ -2395,7 +2475,7 @@ def get_full_parameters(supply_forecast_model_id, execution_id): # Parametros de
         return None
     try:
         cur = conn.cursor()
-
+        ## Establecer orden específico de los parámetros
         query = """
             SELECT 
                 mp.name, 
@@ -2410,6 +2490,7 @@ def get_full_parameters(supply_forecast_model_id, execution_id): # Parametros de
                 ON ep.supply_forecast_model_parameter_id = mp.id
             WHERE mp.supply_forecast_model_id = %s
                 AND ep.supply_forecast_execution_id = %s
+            ORDER BY 1;
         """
 
         # Ejecutar la consulta de manera segura

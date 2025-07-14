@@ -44,14 +44,15 @@ print(f"PATH: {os.environ.get('PATH')}")
 
 # Solo importa lo necesario desde el módulo de funciones
 from funciones_forecast import (
-    get_forecast,
+    # get_forecast,
     generar_datos,
     Procesar_ALGO_01,
     Procesar_ALGO_02,
     Procesar_ALGO_03,
     Procesar_ALGO_04,
     Procesar_ALGO_05,
-    Procesar_ALGO_06,    
+    Procesar_ALGO_06,
+    Procesar_ALGO_07,     
     generar_datos,    
     get_execution_execute_by_status,
     get_full_parameters,
@@ -76,8 +77,8 @@ def get_forecast( id_proveedor, lbl_proveedor, period_lengh=30, algorithm='basic
     - Un DataFrame con las predicciones.
     """
     
-    print('Dentro del get_forecast')
-    print(f'FORECAST control: {id_proveedor} - {lbl_proveedor} - ventana: {period_lengh} - {algorithm} factores: {f1} - {f2} - {f3}')
+    print('Dentro del get_forecast LOCAL')
+    print(f'FORECAST control: {id_proveedor} - {lbl_proveedor} - ventana: {period_lengh} - {algorithm} factores: {f1} - {f2} - {f3} ')
     # Generar los datos de entrada
     data, articulos = generar_datos(id_proveedor, lbl_proveedor, period_lengh) # type: ignore
 
@@ -103,6 +104,8 @@ def get_forecast( id_proveedor, lbl_proveedor, period_lengh=30, algorithm='basic
             return Procesar_ALGO_05(data, id_proveedor, lbl_proveedor, period_lengh, current_date) # Promedio Venta Simple en Ventana
         case 'ALGO_06':
             return Procesar_ALGO_06(data, id_proveedor, lbl_proveedor, period_lengh, current_date) # Tendencias Ventas Semanales
+        case 'ALGO_07':
+            return Procesar_ALGO_07(data, id_proveedor, lbl_proveedor, period_lengh, current_date, f1, f2)  # Promedio Simple Ventana Base Movil x Factor
         case _:
             raise ValueError(f"Error: El algoritmo '{algorithm}' no está implementado.")
 
@@ -139,6 +142,7 @@ if __name__ == "__main__":
                 df_params = get_full_parameters(supply_forecast_model_id, execution_id) 
                 ventana = 30
                 f1 = f2 = f3 = None
+                current_date=None
 
                 try:
                     if df_params is not None and not df_params.empty:
@@ -157,7 +161,7 @@ if __name__ == "__main__":
                 
                 update_execution_execute(forecast_execution_execute_id, supply_forecast_execution_status_id=15)
                 ## RUTINA PRINCIPAL
-                get_forecast(id_proveedor, name, ventana, method, f1, f2, f3)
+                get_forecast(id_proveedor, name, ventana, method, f1, f2, f3, current_date)
                 
                 update_execution_execute(forecast_execution_execute_id, supply_forecast_execution_status_id=20)
                 
