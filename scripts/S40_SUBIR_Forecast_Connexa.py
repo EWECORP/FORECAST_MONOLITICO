@@ -178,7 +178,8 @@ def publicar_forecast_a_connexa(df_forecast_ext, forecast_execution_execute_id, 
                 str(supplier_id),
                 row['ventana'],
                 #     deliveries_pending, quantity_confirmed, approved, base_purchase_price, distribution_unit, 
-                row.get('PEDIDO_PENDIENTE',0), 
+                # row.get('PEDIDO_PENDIENTE',0), 
+                row.get('PEDIDO_PENDIENTE', 0) + row.get('TRANSFER_PENDIENTE', 0),
                 0,
                 False,
                 row.get('I_LISTA_CALCULADO', 0),
@@ -191,7 +192,7 @@ def publicar_forecast_a_connexa(df_forecast_ext, forecast_execution_execute_id, 
                 row.get('PRECIO_COSTO', 0),
                 #     window_sales_days
                 row.get('Q_DIAS_STOCK', 0),
-                row.get('TRANSFER_PENDIENTE', 0),  # <-- CERO FIJO PARA units_reserved
+                0, # <-- CERO FIJO PARA units_reserved
                 row.get('HABILITADO', 1) == 0,   # True si está bloqueado para compra (revisar si es correcto)
 
                 row.get('VENTA_UNIDADES_2Q', 0),  # Primeros 15
