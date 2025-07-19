@@ -272,7 +272,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
 
         # --- ARTÍCULOS --- NUEVA FUENTE GLOBAL 06/25 -- SP_BASE_PRODUCTOS_VIGENTES
         query_articulos = f"""
-            SELECT DISTINCT c_sucu_empr, c_articulo, c_proveedor_primario, abastecimiento, habilitado,  
+            SELECT DISTINCT c_sucu_empr, c_articulo, c_proveedor_primario, abastecimiento, cod_cd, habilitado,  
                     cod_comprador AS c_comprador, 
                     q_factor_compra, full_capacity_pallet, number_of_layers, number_of_boxes_per_layer
             FROM src.base_productos_vigentes
@@ -361,7 +361,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         if ventas_d.empty:
             print(f"⚠️ No se encontraron ventas DIARCO para el proveedor {id_proveedor}.")
         
-         # --- VENTAS --- BARRIO ( En 2 Bases de Datos distintas )
+        # --- VENTAS --- BARRIO ( En 2 Bases de Datos distintas )
         query_ventas_barrio = f"""
             SELECT 
                 v.f_venta AS Fecha, 
@@ -385,7 +385,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             ventas_d.columns = ventas_d.columns.str.lower()
         if not ventas_b.empty:
             ventas_b.columns = ventas_b.columns.str.lower()
-       
+    
         # Transformar tipos de datos si hay datos
         if not ventas_d.empty:
             ventas_d['sucursal'] = ventas_d['sucursal'].astype(int)
@@ -440,7 +440,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         data['Sucursal'] = data['Sucursal'].astype(int)
         data.to_csv(archivo_datos, index=False, encoding='utf-8')
         print(f"---> Datos de RECUPERACIÓN guardados")
-               
+            
         
         # Guardar los datos Compactos de VENTAS en un archivo CSV con el nombre del Proveedor y sufijo _Ventas
         file_path = f'{folder}/{etiqueta}_Ventas.csv'
