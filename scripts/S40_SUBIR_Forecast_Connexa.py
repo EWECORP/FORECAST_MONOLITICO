@@ -132,10 +132,37 @@ def bulk_create_execution_execute_result(rows_to_insert, batch_size=500):
     finally:
         Close_Connection(conn)
 
+def safe_int(value, default=0):
+    try:
+        if pd.isna(value) or value in [np.inf, -np.inf]:
+            return default
+        return int(value)
+    except:
+        return default
+
+def safe_float(value, default=0.0):
+    try:
+        if pd.isna(value) or value in [np.inf, -np.inf]:
+            return default
+        return float(value)
+    except:
+        return default
+
+def safe_aggregate(series, divisor=1.0, round_decimals=2):
+    total = series.sum(skipna=True)
+    if not np.isfinite(total):
+        total = 0.0
+    return round(total / divisor, round_decimals)
+
 @medir_tiempo
 def publicar_forecast_a_connexa(df_forecast_ext, forecast_execution_execute_id, id_proveedor, supplier_id, folder, algoritmo, batch_size=500):
     errores = []
     rows_to_insert = []
+    
+    columnas_validar = ['product_id', 'site_id', 'Forecast', 'ventas_last', 'ventas_previous', 'ventas_same_year']
+    for col in columnas_validar:
+        if df_forecast_ext[col].isnull().any():
+            print(f"⚠️ Columna {col} contiene valores nulos.")
 
     for i, row in df_forecast_ext.iterrows():
         try:
@@ -155,50 +182,43 @@ def publicar_forecast_a_connexa(df_forecast_ext, forecast_execution_execute_id, 
                 continue
             
             fila = (
-                #   id, expected_demand, "timestamp", product_id, site_id, supply_forecast_execution_execute_id, 
                 id_result,
-                row['Forecast'],
+                safe_float(row.get('Forecast', 0)),
                 timestamp,
-                row['product_id'],
-                row['site_id'],
+                row.get('product_id'),
+                row.get('site_id'),
                 forecast_execution_execute_id,
-                #     algorithm, average, ext_product_code, ext_site_code, ext_supplier_code, forcast, graphic, 
-                row['algoritmo'],
-                row['Average'],
-                row['Codigo_Articulo'],
-                row['Sucursal'],
+                row.get('algoritmo'),
+                safe_float(row.get('Average', 0)),
+                row.get('Codigo_Articulo'),
+                row.get('Sucursal'),
                 id_proveedor,
-                row['PEDIDO_SGM'],   # NUEVO Agregado para SGM
-                grafico_serializado,    # row['GRAFICO'],
-                #     quantity_stock, sales_last, sales_previous, sales_same_year, supplier_id, windows,
-                row.get('STOCK', 0),  # No se si poner Q_STOCK o Stock
-                row['ventas_last'],
-                row['ventas_previous'],
-                row['ventas_same_year'],
+                safe_float(row.get('PEDIDO_SGM', 0)),
+                grafico_serializado,
+                safe_float(row.get('STOCK', 0)),
+                safe_float(row.get('ventas_last', 0)),
+                safe_float(row.get('ventas_previous', 0)),
+                safe_float(row.get('ventas_same_year', 0)),
                 str(supplier_id),
-                row['ventana'],
-                #     deliveries_pending, quantity_confirmed, approved, base_purchase_price, distribution_unit, 
-                # row.get('PEDIDO_PENDIENTE',0), 
-                row.get('PEDIDO_PENDIENTE', 0) + row.get('TRANSFER_PENDIENTE', 0),
+                safe_float(row.get('ventana', 0)),
+                safe_float(row.get('PEDIDO_PENDIENTE', 0)) + safe_float(row.get('TRANSFER_PENDIENTE', 0)),
                 0,
                 False,
-                row.get('I_LISTA_CALCULADO', 0),
-                row.get('FACTOR_VENTA',1),
-                row.get('NUMBER_OF_BOXES_PER_LAYER', 1),
-                #     layer_pallet, number_layer_pallet, purchase_unit, sales_price, statistic_base_price,
-                row.get('NUMBER_OF_LAYERS', 1),
-                row.get('Q_FACTOR_COMPRA', 1),
-                row.get('PRECIO_VENTA', 0),
-                row.get('PRECIO_COSTO', 0),
-                #     window_sales_days
-                row.get('Q_DIAS_STOCK', 0),
-                0, # <-- CERO FIJO PARA units_reserved
-                row.get('HABILITADO', 1) == 0,   # True si está bloqueado para compra (revisar si es correcto)
-
-                row.get('VENTA_UNIDADES_2Q', 0),  # Primeros 15
-                row.get('VENTA_UNIDADES_1Q', 0),   # Ultimos 15
-                row.get('C_COMPRADOR', 0)   # Ultimos 15
+                safe_float(row.get('I_LISTA_CALCULADO', 0)),
+                safe_float(row.get('FACTOR_VENTA', 1)),
+                safe_int(row.get('NUMBER_OF_BOXES_PER_LAYER', 1)),
+                safe_int(row.get('NUMBER_OF_LAYERS', 1)),
+                safe_int(row.get('Q_FACTOR_COMPRA', 1)),
+                safe_float(row.get('PRECIO_VENTA', 0)),
+                safe_float(row.get('PRECIO_COSTO', 0)),
+                safe_int(row.get('Q_DIAS_STOCK', 0)),
+                0,
+                row.get('HABILITADO', 1) == 0,
+                safe_float(row.get('VENTA_UNIDADES_2Q', 0)),
+                safe_float(row.get('VENTA_UNIDADES_1Q', 0)),
+                safe_int(row.get('C_COMPRADOR', 0))
             )
+
         
             if len(fila) != 35:
                 print(f"❌ Fila malformada en registro {i+1}: contiene {len(fila)} columnas (esperadas: 34)")
@@ -309,9 +329,15 @@ if __name__ == "__main__":
         try:
             # Leer forecast extendido
             df_forecast_ext = pd.read_csv(f'{folder}/{algoritmo}_Pronostico_Extendido_FINAL.csv')
-            df_forecast_ext['Codigo_Articulo'] = df_forecast_ext['Codigo_Articulo'].astype(int)
-            df_forecast_ext['Sucursal'] = df_forecast_ext['Sucursal'].astype(int)
+            # Conversión segura
+            df_forecast_ext['Codigo_Articulo'] = pd.to_numeric(df_forecast_ext['Codigo_Articulo'], errors='coerce').astype('Int64')
+            df_forecast_ext['Sucursal'] = pd.to_numeric(df_forecast_ext['Sucursal'], errors='coerce').astype('Int64')
+
             df_forecast_ext.fillna(0, inplace=True)
+
+            if df_forecast_ext[['Codigo_Articulo', 'Sucursal']].isnull().any().any():
+                print(f"⚠️ Se encontraron registros con Código de Artículo o Sucursal nulos en {name}")
+
             print(f"-> Datos Recuperados del CACHE: {id_proveedor}, Label: {name}")
             print("❗Filas con site_id inválido:", df_forecast_ext['site_id'].isna().sum())
             print("❗Filas con product_id inválido:", df_forecast_ext['product_id'].isna().sum())
@@ -355,18 +381,87 @@ if __name__ == "__main__":
             df_forecast_ext.to_csv(file_path, index=False)
             print(f"Archivo guardado: {file_path}")
             
-            # Asegurar que los valores son del tipo float (nativo de Python)
-            total_venta = float(round(df_forecast_ext['Forecast_VENTA'].sum() / 1000, 2))
-            total_costo = float(round(df_forecast_ext['Forecast_COSTO'].sum() / 1000, 2))
-            total_margen = float(round(df_forecast_ext['MARGEN'].sum() / 1000, 2))
-            total_productos = df_forecast_ext['Codigo_Articulo'].nunique()
-            total_unidades = float(round(df_forecast_ext['Forecast'].sum() , 0))
+            for col in ['Forecast_VENTA', 'Forecast_COSTO', 'MARGEN', 'Forecast']:
+                if not np.isfinite(df_forecast_ext[col].sum()):
+                    print(f"⚠️ La columna {col} contiene valores no finitos.")
+
+            print("🧪 Columnas con valores nulos:")
+            print(df_forecast_ext.isna().sum()[df_forecast_ext.isna().sum() > 0])
+            
+            
+            # Limpieza previa por si hubiera columnas mal formateadas
+            cols_float = ['Forecast_VENTA', 'Forecast_COSTO', 'MARGEN', 'Forecast']
+            for col in cols_float:
+                df_forecast_ext[col] = pd.to_numeric(df_forecast_ext[col], errors='coerce').fillna(0.0)
+
+            print("⚠️ Verificación de valores no finitos (NaN o inf):")
+            
+            # Diagnóstico adicional si hay DataFrame disponible
+            if 'df_forecast_ext' in locals() and not df_forecast_ext.empty:
+                print("🔍 Explorando filas con posibles errores...")
+                for i, row in df_forecast_ext.iterrows():
+                    try:
+                        # Simular construcción de fila como en publicar_forecast_a_connexa
+                        dummy = (
+                            row.get('product_id'),
+                            row.get('site_id'),
+                            row.get('algoritmo'),
+                            safe_float(row.get('Forecast', 0)),
+                            safe_float(row.get('ventas_last', 0))
+                        )
+                    except Exception as inner_e:
+                        print(f"❌ Error en fila {i+1}: {type(inner_e).__name__} - {inner_e}") # type: ignore
+                        print("Contenido de la fila con error:")
+                        print(row.to_dict())
+                        break
+            else:
+                print("❗ df_forecast_ext no está definido o está vacío.")
+            
+            for col in cols_float:
+                print("🔍 Verificando columna:", col)
+                invalids = df_forecast_ext[~pd.Series(pd.to_numeric(df_forecast_ext[col], errors="coerce")).apply(pd.api.types.is_number)]
+                if not invalids.empty:
+                    print(f"⚠️ Columna {col} tiene {len(invalids)} valores no finitos:")
+                    print(invalids[[col]].head())
+                    
+            # Elmininar Posibles Nulos (Los CD no tiene VENTAS y Generan ERRORES)
+            df_forecast_ext['Forecast_VENTA'] = pd.to_numeric(df_forecast_ext['Forecast_VENTA'], errors='coerce')
+            df_forecast_ext['Forecast_COSTO'] = pd.to_numeric(df_forecast_ext['Forecast_COSTO'], errors='coerce')
+            df_forecast_ext['MARGEN'] = pd.to_numeric(df_forecast_ext['MARGEN'], errors='coerce')
+            df_forecast_ext['Forecast'] = pd.to_numeric(df_forecast_ext['Forecast'], errors='coerce')
+            df_forecast_ext = df_forecast_ext.replace([np.inf, -np.inf], np.nan).dropna(
+                subset=['Forecast_VENTA', 'Forecast_COSTO', 'MARGEN', 'Forecast'])
+
+            for col in ['Forecast_VENTA', 'Forecast_COSTO', 'MARGEN', 'Forecast']:
+                if not pd.api.types.is_numeric_dtype(df_forecast_ext[col]):
+                    print(f"⚠️ {col} NO es numérica")
+                if not np.isfinite(df_forecast_ext[col]).all():
+                    print(f"❌ {col} contiene valores no finitos (NaN o inf)")
+
+            # Calcular KPIs
+            print("🔍 Calculando KPIs agregados...")
+            try:
+                total_venta = float(round(df_forecast_ext['Forecast_VENTA'].sum() / 1000, 2))
+                print(f"Total Venta: {total_venta} millones")
+                total_costo = float(round(df_forecast_ext['Forecast_COSTO'].sum() / 1000, 2))
+                print(f"Total Costo: {total_costo} millones")
+                total_margen = float(round(df_forecast_ext['MARGEN'].sum() / 1000, 2))
+                print(f"Total Margen: {total_margen} millones")
+                total_productos = df_forecast_ext['Codigo_Articulo'].nunique()
+                print(f"Total Productos: {total_productos}")
+                total_unidades = float(round(df_forecast_ext['Forecast'].sum(), 0))
+                print(f"Total Unidades: {total_unidades}")
+            except Exception as e:
+                print("❌ Error en cálculos agregados:", e)
+                print(df_forecast_ext[['Forecast_VENTA', 'Forecast_COSTO', 'MARGEN', 'Forecast']].describe())
+                raise
 
             # Mini gráfico
             mini_grafico = generar_mini_grafico(folder, name)
-
+            print(f"Mini gráfico generado: {mini_grafico}")
             # DATOS COMPLEMENTARIOS
             df_stock = obtener_datos_stock(id_proveedor= id_proveedor, etiqueta= algoritmo )
+            print(f"-> Datos de Stock Recuperados: {id_proveedor}, Label: {name}")
             if df_stock is None or df_stock.empty:
                 print(f"⚠️ No se pudo recuperar datos de stock para el proveedor {id_proveedor}. Se omite cálculo de stock.")
                 total_stock_valorizado = 0
@@ -408,7 +503,7 @@ if __name__ == "__main__":
                 quiebres ='G'
             else:
                 quiebres = 'white' # Valor predeterminado
-                                    
+            print("Antes de publicar:")                       
             update_execution_execute(
                 forecast_execution_execute_id,
                 supply_forecast_execution_status_id=45,
@@ -436,6 +531,29 @@ if __name__ == "__main__":
         except Exception as e:
             import traceback
             traceback.print_exc()
-            print(f"❌ Error procesando {name}: {e}")
+            print(f"❌ Error procesando {name} en forecast_execution_id: {execution_id}")
+            print(f"⚠️ Excepción: {type(e).__name__} - {e}")
+
+            # Diagnóstico adicional si hay DataFrame disponible
+            if 'df_forecast_ext' in locals() and not df_forecast_ext.empty:
+                print("🔍 Explorando filas con posibles errores...")
+                for i, row in df_forecast_ext.iterrows():
+                    try:
+                        # Simular construcción de fila como en publicar_forecast_a_connexa
+                        dummy = (
+                            row.get('product_id'),
+                            row.get('site_id'),
+                            row.get('algoritmo'),
+                            safe_float(row.get('Forecast', 0)),
+                            safe_float(row.get('ventas_last', 0))
+                        )
+                    except Exception as inner_e:
+                        print(f"❌ Error en fila {i+1}: {type(inner_e).__name__} - {inner_e}") # type: ignore
+                        print("Contenido de la fila con error:")
+                        print(row.to_dict())
+                        break
+            else:
+                print("❗ df_forecast_ext no está definido o está vacío.")
+
             
 # --------------------------------

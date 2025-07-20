@@ -44,10 +44,15 @@ print(f"-> Datos Recuperados del CACHE: {secrets['FOLDER_DATOS']}")
 def extender_datos_forecast(algoritmo, name, id_proveedor):
     # Recuperar Historial de Ventas
     df_ventas = pd.read_csv(f'{folder}/{name}_Ventas.csv')
-    df_ventas['Codigo_Articulo']= df_ventas['Codigo_Articulo'].astype(int)
-    df_ventas['Sucursal']= df_ventas['Sucursal'].astype(int)
+
+    # Convertir tipos de datos    
+    df_ventas['Codigo_Articulo'] = pd.to_numeric(df_ventas['Codigo_Articulo'], errors='coerce').astype('Int64')
+    df_ventas['Sucursal'] = pd.to_numeric(df_ventas['Sucursal'], errors='coerce').astype('Int64')   
     df_ventas['Fecha']= pd.to_datetime(df_ventas['Fecha'])
 
+    if df_ventas[['Codigo_Articulo', 'Sucursal']].isnull().any().any():
+        print(f"⚠️ Atención: Ventas contiene registros con valores nulos en Código o Sucursal.")
+    
     # Recuperar Maestro de Artículos
     articulos = pd.read_csv(f'{folder}/{name}_articulos.csv')
     

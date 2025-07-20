@@ -425,7 +425,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             demanda,  
             left_on=['C_ARTICULO', 'C_SUCU_EMPR'],          
             right_on=['Codigo_Articulo', 'Sucursal'],            
-            how='inner'  # Solo traer los productos que están en AMBOS ARCHIVOS
+            how='left'   # 'inner'  # Solo traer los productos que están en AMBOS ARCHIVOS  'left' trate TODOS los articulos activos en cada sucursal
         )
 
         if data.empty:
@@ -433,14 +433,20 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             Close_Connection(conn)
             return None, articulos
 
+
+        # Conversión segura de columnas a enteros con soporte para NaN
+        data['C_ARTICULO'] = data['C_ARTICULO'].astype('Int64')
+        data['C_SUCU_EMPR'] = data['C_SUCU_EMPR'].astype('Int64')
+        data['Codigo_Articulo'] = data['Codigo_Articulo'].astype('Int64')
+        data['Sucursal'] = data['Sucursal'].astype('Int64')
+
+        # Agregar columna indicadora de si tiene demanda
+        data['TIENE_DEMANDA'] = data['Unidades'].notna().astype(int)
+        data['Unidades'] = data['Unidades'].fillna(0)
+
         # Guardado
-        data['C_ARTICULO'] = data['C_ARTICULO'].astype(int)
-        data['C_SUCU_EMPR'] = data['C_SUCU_EMPR'].astype(int)
-        data['Codigo_Articulo'] = data['Codigo_Articulo'].astype(int)
-        data['Sucursal'] = data['Sucursal'].astype(int)
         data.to_csv(archivo_datos, index=False, encoding='utf-8')
         print(f"---> Datos de RECUPERACIÓN guardados")
-            
         
         # Guardar los datos Compactos de VENTAS en un archivo CSV con el nombre del Proveedor y sufijo _Ventas
         file_path = f'{folder}/{etiqueta}_Ventas.csv'
@@ -1669,9 +1675,13 @@ def get_forecast( id_proveedor, lbl_proveedor, period_lengh=30, algorithm='basic
 def generar_mini_grafico( folder, name):
     # Recuperar Historial de Ventas
     df_ventas = pd.read_csv(f'{folder}/{name}_Ventas.csv')
-    df_ventas['Codigo_Articulo']= df_ventas['Codigo_Articulo'].astype(int)
-    df_ventas['Sucursal']= df_ventas['Sucursal'].astype(int)
-    df_ventas['Fecha']= pd.to_datetime(df_ventas['Fecha'])
+    # Asegura conversión robusta y sin fallos
+    df_ventas['Codigo_Articulo'] = pd.to_numeric(df_ventas['Codigo_Articulo'], errors='coerce').astype('Int64')
+    df_ventas['Sucursal'] = pd.to_numeric(df_ventas['Sucursal'], errors='coerce').astype('Int64')
+    df_ventas['Fecha'] = pd.to_datetime(df_ventas['Fecha'])
+
+    if df_ventas['Codigo_Articulo'].isnull().any() or df_ventas['Sucursal'].isnull().any():
+        print("⚠️ Atención: Existen valores nulos en Código_Articulo o Sucursal.")
     
     # 🔄 Agrupar por Fecha, Código de Artículo y Sucursal, para consolidar múltiples precios
     df_ventas = (
