@@ -249,11 +249,14 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         if fecha_modificacion.date() == datetime.today().date():
             try:
                 data = pd.read_csv(archivo_datos)
+                data = data.dropna(subset=['Codigo_Articulo', 'Sucursal', 'Fecha'], how='all')  # Eliminar filas donde todas las columnas clave son NaN
                 data['Codigo_Articulo'] = data['Codigo_Articulo'].astype(int)
                 data['Sucursal'] = data['Sucursal'].astype(int)
                 data['Fecha'] = pd.to_datetime(data['Fecha'])
 
                 articulos = pd.read_csv(archivo_articulos)
+                articulos = articulos.dropna(subset=['C_ARTICULO', 'C_SUCU_EMPR'], how='all')  # Eliminar filas donde todas las columnas clave son NaN
+                
 
                 print(f"-> Datos Recuperados del CACHE: {id_proveedor}, Label: {etiqueta}")
                 return data, articulos
