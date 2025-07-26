@@ -93,23 +93,23 @@ def get_forecast( id_proveedor, lbl_proveedor, period_lengh=30, algorithm='basic
     # Selección del algoritmo de predicción
     match algorithm:
         case 'ALGO_01':
-            return Procesar_ALGO_01(data, id_proveedor, lbl_proveedor, period_lengh, current_date, f1, f2, f3)  # Promedio Ponderado x 3 Factores
+            return Procesar_ALGO_01(data, articulos, id_proveedor, lbl_proveedor, period_lengh, current_date, factor_last=f1, factor_previous=f2, factor_year=f3)  # Promedio Ponderado x 3 Factores
         case 'ALGO_02':
-            return Procesar_ALGO_02(data, id_proveedor, lbl_proveedor, period_lengh, current_date) # Doble Exponencial - Modelo Holt (Tendencia)
+            return Procesar_ALGO_02(data, articulos, id_proveedor, lbl_proveedor, period_lengh, current_date) # Doble Exponencial - Modelo Holt (Tendencia)
         case 'ALGO_03':
-            return Procesar_ALGO_03(data, id_proveedor, lbl_proveedor, period_lengh, current_date, f1, f2, f3) # Triple Exponencial Holt-WInter (Tendencia + Estacionalidad) (periodos, add, add)
+            return Procesar_ALGO_03(data, articulos, id_proveedor, lbl_proveedor, period_lengh, current_date, periodos=f1, estacionalidad=f2, tendencia=f3) # Triple Exponencial Holt-WInter (Tendencia + Estacionalidad) (periodos, add, add)
         case 'ALGO_04':
-            return Procesar_ALGO_04(data, id_proveedor, lbl_proveedor, period_lengh, current_date, f1) # EWMA con Factor alpha
+            return Procesar_ALGO_04(data, articulos, id_proveedor, lbl_proveedor, period_lengh, current_date, alpha=f1) # EWMA con Factor alpha
         case 'ALGO_05':
-            return Procesar_ALGO_05(data, id_proveedor, lbl_proveedor, period_lengh, current_date) # Promedio Venta Simple en Ventana
+            return Procesar_ALGO_05(data, articulos, id_proveedor, lbl_proveedor, period_lengh, current_date) # Promedio Venta Simple en Ventana
         case 'ALGO_06':
-            return Procesar_ALGO_06(data, id_proveedor, lbl_proveedor, period_lengh, current_date) # Tendencias Ventas Semanales
+            return Procesar_ALGO_06(data, articulos, id_proveedor, lbl_proveedor, period_lengh, current_date) # Tendencias Ventas Semanales
         case 'ALGO_07':
-            return Procesar_ALGO_07(data, id_proveedor, lbl_proveedor, period_lengh, current_date, f1, f2)  # Promedio Simple Ventana Base Movil x Factor
+            return Procesar_ALGO_07(data, articulos, id_proveedor, lbl_proveedor, period_lengh, current_date, factor=f1, fecha_base=f2)  # Promedio Simple Ventana Base Movil x Factor
         case _:
             raise ValueError(f"Error: El algoritmo '{algorithm}' no está implementado.")
 
-#----------------------------------------------------------------
+#----------------------------------------------------------------   
 # RUTINA PRINCIPAL
 #----------------------------------------------------------------       
 

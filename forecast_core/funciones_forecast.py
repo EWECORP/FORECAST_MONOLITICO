@@ -5,7 +5,7 @@
 # Se mantiene por Compatibilidad con el resto de la aplicación las funciones _OLD
 """
 funciones_forecast.py
-Versión 1.3.3
+Versión 1.3.4
 
 Este módulo contiene todas las funciones necesarias para:
 - conexión a bases de datos
@@ -16,6 +16,7 @@ Este módulo contiene todas las funciones necesarias para:
 - Nuevos JSON Refacctorizado
 - CONFIGURACIÓN DINAMICA desde .env
 - NUEVA Generación Masiva de Datos
+- Asegurar INCLUIR surtido de artículos y sucursales en los resultados de pronóstico SIN VENTAS
 
 """
 
@@ -346,86 +347,67 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         articulos = pd.merge(articulos, stock_sucursal, left_on=['C_ARTICULO', 'C_SUCU_EMPR'], right_on=['CODIGO_ARTICULO', 'CODIGO_SUCURSAL'], how='inner')  
 
         # --- VENTAS --- DIARCO + BARRIO ( En 2 Bases de Datos distintas )
-        query_ventas_diarco = f"""
+        query_ventas = f"""
             SELECT 
                 v.f_venta AS Fecha, 
-                v.c_articulo as Codigo_Articulo, 
-                v.c_sucu_empr as Sucursal, 
-                v.q_unidades_vendidas as Unidades
+                v.c_articulo AS Codigo_Articulo, 
+                v.c_sucu_empr AS Sucursal, 
+                v.q_unidades_vendidas AS Unidades
             FROM src.t702_est_vtas_por_articulo v
             JOIN src.base_productos_vigentes a 
                 ON a.c_articulo = v.c_articulo
                 AND a.c_sucu_empr = v.c_sucu_empr
                 AND a.c_proveedor_primario = {id_proveedor}
-            WHERE v.f_venta >= '2024-06-01'  
-            ORDER BY fecha;
-        """
-        ventas_d = pd.read_sql(query_ventas_diarco, conn) # type: ignore
-        if ventas_d.empty:
-            print(f"⚠️ No se encontraron ventas DIARCO para el proveedor {id_proveedor}.")
-        
-        # --- VENTAS --- BARRIO ( En 2 Bases de Datos distintas )
-        query_ventas_barrio = f"""
+            WHERE v.f_venta >= '2024-06-01'
+
+            UNION ALL
+
             SELECT 
                 v.f_venta AS Fecha, 
-                v.c_articulo as Codigo_Articulo, 
-                v.c_sucu_empr as Sucursal, 
-                v.q_unidades_vendidas as Unidades
+                v.c_articulo AS Codigo_Articulo, 
+                v.c_sucu_empr AS Sucursal, 
+                v.q_unidades_vendidas AS Unidades
             FROM src.t702_est_vtas_por_articulo_dbarrio v
             JOIN src.base_productos_vigentes a 
                 ON a.c_articulo = v.c_articulo
                 AND a.c_sucu_empr = v.c_sucu_empr
                 AND a.c_proveedor_primario = {id_proveedor}
-            WHERE v.f_venta >= '2024-06-01'  
-            ORDER BY fecha;
+            WHERE v.f_venta >= '2024-06-01'
+
+            ORDER BY Fecha, Codigo_Articulo, Sucursal;
         """
-        ventas_b = pd.read_sql(query_ventas_barrio, conn) # type: ignore
-        if ventas_b.empty:
-            print(f"⚠️ No se encontraron ventas DIARCO BARRIO para el proveedor {id_proveedor}.")
+        ventas = pd.read_sql(query_ventas, conn) # type: ignore
+        if ventas.empty:
+            print(f"⚠️ No se encontraron ventas DIARCO + BARRIO para el proveedor {id_proveedor}.")
         
         # Convertir columnas a minúsculas si hay datos
-        if not ventas_d.empty:
-            ventas_d.columns = ventas_d.columns.str.lower()
-        if not ventas_b.empty:
-            ventas_b.columns = ventas_b.columns.str.lower()
-    
-        # Transformar tipos de datos si hay datos
-        if not ventas_d.empty:
-            ventas_d['sucursal'] = ventas_d['sucursal'].astype(int)
-            ventas_d['codigo_articulo'] = ventas_d['codigo_articulo'].astype(int)
-            ventas_d['fecha'] = pd.to_datetime(ventas_d['fecha'])
-
-        if not ventas_b.empty:
-            ventas_b['sucursal'] = ventas_b['sucursal'].astype(int)
-            ventas_b['codigo_articulo'] = ventas_b['codigo_articulo'].astype(int)
-            ventas_b['fecha'] = pd.to_datetime(ventas_b['fecha'])
-
-        # Concatenar los datos
-        if not ventas_d.empty and not ventas_b.empty:
-            demanda = pd.concat([ventas_d, ventas_b], ignore_index=True)
-        elif not ventas_d.empty:
-            demanda = ventas_d.copy()
-        elif not ventas_b.empty:
-            demanda = ventas_b.copy()
+        if not ventas.empty:
+            ventas.columns = ventas.columns.str.lower()
+            # Transformar tipos de datos si hay datos
+            ventas['sucursal'] = ventas['sucursal'].astype(int)
+            ventas['codigo_articulo'] = ventas['codigo_articulo'].astype(int)
+            ventas['fecha'] = pd.to_datetime(ventas['fecha'])
+            # Eliminar filas con NaN en 'fecha', 'codigo_articulo' o 'sucursal'
+            ventas = ventas.dropna(subset=['fecha', 'codigo_articulo', 'sucursal'], how='all')
+            
         else:
             print(f"⚠️ No se encontraron ventas para el proveedor {id_proveedor} ni en DIARCO ni en BARRIO.")
-            demanda = pd.DataFrame(columns=['fecha', 'codigo_articulo', 'sucursal', 'unidades'])  # DataFrame vacío con columnas esperadas
+            ventas = pd.DataFrame(columns=['fecha', 'codigo_articulo', 'sucursal', 'unidades'])  # DataFrame vacío con columnas esperadas
 
-        demanda = demanda.rename(columns={
+        ventas = ventas.rename(columns={
             "fecha": "Fecha",
             "codigo_articulo": "Codigo_Articulo",
             "sucursal": "Sucursal",
             "unidades": "Unidades"
         })
-
         # Guardar solo VENTAS 
-        demanda.to_csv(f'{folder}/{etiqueta}_Demanda.csv', index=False, encoding='utf-8')
+        ventas.to_csv(f'{folder}/{etiqueta}_Demanda.csv', index=False, encoding='utf-8')
         print(f"---> Datos de Ventas guardados")
 
         # --- MERGE ---
         data = pd.merge(
             articulos,
-            demanda,  
+            ventas,  
             left_on=['C_ARTICULO', 'C_SUCU_EMPR'],          
             right_on=['Codigo_Articulo', 'Sucursal'],            
             how='left'   # 'inner'  # Solo traer los productos que están en AMBOS ARCHIVOS  'left' trate TODOS los articulos activos en cada sucursal
@@ -435,7 +417,6 @@ def generar_datos(id_proveedor, etiqueta, ventana):
             print(f"⚠️ No hay coincidencias entre artículos y ventas para el proveedor {id_proveedor}.")
             Close_Connection(conn)
             return None, articulos
-
 
         # Conversión segura de columnas a enteros con soporte para NaN
         data['C_ARTICULO'] = data['C_ARTICULO'].astype('Int64')
@@ -1508,26 +1489,72 @@ def Calcular_Demanda_ALGO_07(df, id_proveedor, etiqueta, periodo, current_date, 
 # RUTINAS DE PROCESAMIENTO DE ALGORITMOS
 ###----------------------------------------------------------------
 
-def Procesar_ALGO_07(data, proveedor, etiqueta, periodo, current_date, factor, fecha_base):    
+def Procesar_ALGO_07(data, articulos, proveedor, etiqueta, periodo, current_date, **kwargs):    
     # Asignar valores por defecto si los factores no están definidos
-    factor = 1 if factor is None else factor
+    factor = kwargs.get('factor', 1)
+    fecha_base = kwargs.get('fecha_base')
 
     print(f'--> Procesar_ALGO_07 Período {periodo} - Factores Utilizados: Factor: {factor} Fecha Base: {fecha_base}')
         
     df_forecast = Calcular_Demanda_ALGO_07(data, proveedor, etiqueta,  periodo, current_date, factor, fecha_base)
     df_forecast['Codigo_Articulo']= df_forecast['Codigo_Articulo'].astype(int)
     df_forecast['Sucursal']= df_forecast['Sucursal'].astype(int)
-    df_forecast.to_csv(f'{folder}/{etiqueta}_ALGO_07_Solicitudes_Compra.csv', index=False)   # Exportar el resultado a un CSV para su posterior procesamiento
+        
+    # Extraer el surtido de artículos y sucursales
+    surtido = articulos[['C_ARTICULO', 'C_SUCU_EMPR','C_PROVEEDOR_PRIMARIO']]
+    surtido = surtido.rename(columns={'C_ARTICULO': 'Codigo_Articulo', 'C_SUCU_EMPR': 'Sucursal', 'C_PROVEEDOR_PRIMARIO': 'id_proveedor'})
+    surtido['Codigo_Articulo']= surtido['Codigo_Articulo'].astype(int)
+    surtido['Sucursal']= surtido['Sucursal'].astype(int)
+    surtido['id_proveedor']= surtido['id_proveedor'].astype(int)
     
-    Exportar_Pronostico(df_forecast, proveedor, etiqueta, 'ALGO_07')  # Impactar Datos en la Interface        
+    df_final = pd.merge(surtido, df_forecast, on=['Codigo_Articulo', 'Sucursal'], how='left')  # Asegurar que todos los artículos del surtido estén presentes
+    
+    df_final = df_final.fillna(0)  # Rellenar NaN con 0 para evitar problemas en el CSV
+    df_final['algoritmo'] = df_final['algoritmo'].replace('', pd.NA)
+    df_final['algoritmo'] = df_final['algoritmo'].fillna('ALGO_07')
+    df_final['f1'] = df_final['f1'].replace('', pd.NA)
+    df_final['f1'] = df_final['f1'].fillna(factor)
+    df_final['f2'] = df_final['f2'].replace('', pd.NA)
+    df_final['f2'] = df_final['f2'].fillna(fecha_base)
+    df_final['f3'] = df_final['f3'].replace('', pd.NA)
+    df_final['f3'] = df_final['f3'].fillna(0)
+    # Eliminar la columna duplicada
+    df_final.drop(columns=['id_proveedor_y'], inplace=True)
+    df_final.rename(columns={'id_proveedor_x': 'id_proveedor'}, inplace=True)
+    df_final.to_csv(f'{folder}/{etiqueta}_ALGO_07_Solicitudes_Compra.csv', index=False)   # Exportar el resultado a un CSV para su posterior procesamiento
+    
+    Exportar_Pronostico(df_final, proveedor, etiqueta, 'ALGO_07')  # Impactar Datos en la Interface        
     return  
 
-def Procesar_ALGO_06(data, proveedor, etiqueta, ventana, fecha):
+def Procesar_ALGO_06(data, articulos, proveedor, etiqueta, ventana, fecha):
     print(f'--> Procesar_ALGO_06 ventana {ventana} - fecha {fecha} - No usa Factores')
     df_forecast = Calcular_Demanda_ALGO_06(data, proveedor, etiqueta, ventana, fecha)    # Exportar el resultado a un CSV para su posterior procesamiento
     df_forecast['Codigo_Articulo']= df_forecast['Codigo_Articulo'].astype(int)
     df_forecast['Sucursal']= df_forecast['Sucursal'].astype(int)
-    df_forecast.to_csv(f'{folder}/{etiqueta}_ALGO_06_Solicitudes_Compra.csv', index=False)
+        
+    # Extraer el surtido de artículos y sucursales
+    surtido = articulos[['C_ARTICULO', 'C_SUCU_EMPR','C_PROVEEDOR_PRIMARIO']]
+    surtido = surtido.rename(columns={'C_ARTICULO': 'Codigo_Articulo', 'C_SUCU_EMPR': 'Sucursal', 'C_PROVEEDOR_PRIMARIO': 'id_proveedor'})
+    surtido['Codigo_Articulo']= surtido['Codigo_Articulo'].astype(int)
+    surtido['Sucursal']= surtido['Sucursal'].astype(int)
+    surtido['id_proveedor']= surtido['id_proveedor'].astype(int)
+    
+    df_final = pd.merge(surtido, df_forecast, on=['Codigo_Articulo', 'Sucursal'], how='left')  # Asegurar que todos los artículos del surtido estén presentes
+     
+    df_final = df_final.fillna(0)  # Rellenar NaN con 0 para evitar problemas en el CSV
+    df_final['algoritmo'] = df_final['algoritmo'].replace('', pd.NA)
+    df_final['algoritmo'] = df_final['algoritmo'].fillna('ALGO_06') 
+    df_final['f1'] = df_final['f1'].replace('', pd.NA)
+    df_final['f1'] = df_final['f1'].fillna(0)
+    df_final['f2'] = df_final['f2'].replace('', pd.NA)
+    df_final['f2'] = df_final['f2'].fillna(0)
+    df_final['f3'] = df_final['f3'].replace('', pd.NA)
+    df_final['f3'] = df_final['f3'].fillna(0)
+    
+    # Eliminar la columna duplicada
+    df_final.drop(columns=['id_proveedor_y'], inplace=True)
+    df_final.rename(columns={'id_proveedor_x': 'id_proveedor'}, inplace=True)
+    df_final.to_csv(f'{folder}/{etiqueta}_ALGO_06_Solicitudes_Compra.csv', index=False)
     print(f'-> ** Solicitudes Exportadas: {etiqueta}_ALGO_06_Solicitudes_Compra.csv *** : ventana: {ventana}  - {fecha}')
     
     # df_validacion = Calcular_Demanda_Extendida_ALGO_06(data, ventana, proveedor, etiqueta, fecha)
@@ -1536,10 +1563,10 @@ def Procesar_ALGO_06(data, proveedor, etiqueta, ventana, fecha):
     # df_validacion.to_csv(f'{folder}/{etiqueta}_ALGO_06_Datos_Validacion.csv', index=False)
     # print(f'-> ** Validación Exportada: {etiqueta}_ALGO_06_Datos_Validacion.csv *** : ventana: {ventana}  - {fecha}')
     
-    Exportar_Pronostico(df_forecast, proveedor, etiqueta, 'ALGO_06')  # Impactar Datos en la Interface   
+    Exportar_Pronostico(df_final, proveedor, etiqueta, 'ALGO_06')  # Impactar Datos en la Interface   
     return
     
-def Procesar_ALGO_05(data, proveedor, etiqueta, ventana, fecha):
+def Procesar_ALGO_05(data, articulos, proveedor, etiqueta, ventana, fecha):
     
         # Determinar la fecha base
     if fecha is None:
@@ -1552,124 +1579,230 @@ def Procesar_ALGO_05(data, proveedor, etiqueta, ventana, fecha):
     df_forecast = Calcular_Demanda_ALGO_05(data, proveedor, etiqueta, ventana, fecha)    # Exportar el resultado a un CSV para su posterior procesamiento
     df_forecast['Codigo_Articulo']= df_forecast['Codigo_Articulo'].astype(int)
     df_forecast['Sucursal']= df_forecast['Sucursal'].astype(int)
-    df_forecast.to_csv(f'{folder}/{etiqueta}_ALGO_05_Solicitudes_Compra.csv', index=False)
+        
+    # Extraer el surtido de artículos y sucursales
+    surtido = articulos[['C_ARTICULO', 'C_SUCU_EMPR','C_PROVEEDOR_PRIMARIO']]
+    surtido = surtido.rename(columns={'C_ARTICULO': 'Codigo_Articulo', 'C_SUCU_EMPR': 'Sucursal', 'C_PROVEEDOR_PRIMARIO': 'id_proveedor'})
+    surtido['Codigo_Articulo']= surtido['Codigo_Articulo'].astype(int)
+    surtido['Sucursal']= surtido['Sucursal'].astype(int)
+    surtido['id_proveedor']= surtido['id_proveedor'].astype(int)
     
-    Exportar_Pronostico(df_forecast, proveedor, etiqueta, 'ALGO_05')  # Impactar Datos en la Interface   
+    df_final = pd.merge(surtido, df_forecast, on=['Codigo_Articulo', 'Sucursal'], how='left')  # Asegurar que todos los artículos del surtido estén presentes
+     
+    df_final = df_final.fillna(0)  # Rellenar NaN con 0 para evitar problemas en el CSV
+    df_final['algoritmo'] = df_final['algoritmo'].replace('', pd.NA)
+    df_final['algoritmo'] = df_final['algoritmo'].fillna('ALGO_05')
+    df_final['f1'] = df_final['f1'].replace('', pd.NA)
+    df_final['f1'] = df_final['f1'].fillna(0)
+    df_final['f2'] = df_final['f2'].replace('', pd.NA)
+    df_final['f2'] = df_final['f2'].fillna(0)
+    df_final['f3'] = df_final['f3'].replace('', pd.NA)
+    df_final['f3'] = df_final['f3'].fillna(0)
+    # Eliminar la columna duplicada
+    df_final.drop(columns=['id_proveedor_y'], inplace=True)
+    df_final.rename(columns={'id_proveedor_x': 'id_proveedor'}, inplace=True)
+    df_final.to_csv(f'{folder}/{etiqueta}_ALGO_05_Solicitudes_Compra.csv', index=False)
+    
+    Exportar_Pronostico(df_final, proveedor, etiqueta, 'ALGO_05')  # Impactar Datos en la Interface   
     return
 
-def Procesar_ALGO_04(data, proveedor, etiqueta, ventana, current_date=None,  alfa=None):    
+def Procesar_ALGO_04(data, articulos, proveedor, etiqueta, ventana, fecha,  **kwargs):    
     # Asignar valores por defecto si los factores no están definidos
-    alfa = 0.5 if alfa is None else float(alfa)
+    alfa = float(kwargs.get('alpha', 0.5))
     
     # Determinar la fecha base
-    if current_date is None:
-        current_date = data['Fecha'].max()  # Se toma la última fecha en los datos
+    if fecha is None:
+        fecha = data['Fecha'].max()  # Se toma la última fecha en los datos
     else:
-        current_date = pd.to_datetime(current_date)  # Se asegura que sea un objeto datetime
+        fecha = pd.to_datetime(fecha)  # Se asegura que sea un objeto datetime
     
     # Parámetro de suavizado (alpha); valores cercanos a 1 dan más peso a los datos recientes
     
-    print(f'--> Procesar_ALGO_04 ventana {ventana} - fecha {current_date} Peso de los Factores Utilizados: Factor Alpha: {alfa} ')
+    print(f'--> Procesar_ALGO_04 ventana {ventana} - fecha {fecha} Peso de los Factores Utilizados: Factor Alpha: {alfa} ')
         
-    df_forecast = Calcular_Demanda_ALGO_04(data, proveedor, etiqueta, ventana, current_date, alfa)
+    df_forecast = Calcular_Demanda_ALGO_04(data, proveedor, etiqueta, ventana, fecha, alfa)
     df_forecast['Codigo_Articulo']= df_forecast['Codigo_Articulo'].astype(int)
     df_forecast['Sucursal']= df_forecast['Sucursal'].astype(int)
-    df_forecast.to_csv(f'{folder}/{etiqueta}_ALGO_04_Solicitudes_Compra.csv', index=False)   # Exportar el resultado a un CSV para su posterior procesamiento
     
-    Exportar_Pronostico(df_forecast, proveedor, etiqueta, 'ALGO_04')  # Impactar Datos en la Interface        
+    # Extraer el surtido de artículos y sucursales
+    surtido = articulos[['C_ARTICULO', 'C_SUCU_EMPR','C_PROVEEDOR_PRIMARIO']]
+    surtido = surtido.rename(columns={'C_ARTICULO': 'Codigo_Articulo', 'C_SUCU_EMPR': 'Sucursal', 'C_PROVEEDOR_PRIMARIO': 'id_proveedor'})
+    surtido['Codigo_Articulo']= surtido['Codigo_Articulo'].astype(int)
+    surtido['Sucursal']= surtido['Sucursal'].astype(int)
+    surtido['id_proveedor']= surtido['id_proveedor'].astype(int)
+    
+    df_final = pd.merge(surtido, df_forecast, on=['Codigo_Articulo', 'Sucursal'], how='left')  # Asegurar que todos los artículos del surtido estén presentes
+     
+    df_final = df_final.fillna(0)  # Rellenar NaN con 0 para evitar problemas en el CSV
+    df_final['algoritmo'] = df_final['algoritmo'].replace('', pd.NA)
+    df_final['algoritmo'] = df_final['algoritmo'].fillna('ALGO_04')
+    df_final['f1'] = df_final['f1'].replace('', pd.NA)
+    df_final['f1'] = df_final['f1'].fillna(alfa)
+    df_final['f2'] = df_final['f2'].replace('', pd.NA)
+    df_final['f2'] = df_final['f2'].fillna(0)
+    df_final['f3'] = df_final['f3'].replace('', pd.NA)
+    df_final['f3'] = df_final['f3'].fillna(0)
+    # Eliminar la columna duplicada
+    df_final.drop(columns=['id_proveedor_y'], inplace=True)
+    df_final.rename(columns={'id_proveedor_x': 'id_proveedor'}, inplace=True)
+    df_final.to_csv(f'{folder}/{etiqueta}_ALGO_04_Solicitudes_Compra.csv', index=False)   # Exportar el resultado a un CSV para su posterior procesamiento
+    
+    Exportar_Pronostico(df_final, proveedor, etiqueta, 'ALGO_04')  # Impactar Datos en la Interface        
     return
 
-def Procesar_ALGO_03(data, proveedor, etiqueta, ventana, fecha, periodos=None, f2=None, f3=None):    
+def Procesar_ALGO_03(data, articulos, proveedor, etiqueta, ventana, fecha, **kwargs):    
     # Asignar valores por defecto si los factores no están definidos
-    periodos = 7 if periodos is None else int(periodos)
-    f2 = 'add' if f2 is None else str(f2)  # Incorporar Efecto Estacionalidad
-    f3 = 'add' if f3 is None else str(f3) # Informprar Efecto Tendencia Anual
+    periodos = int(kwargs.get('periodos', 7))
+    f2 = kwargs.get('estacionalidad', 'add')  # Incorporar Efect
+    f3 = kwargs.get('tendencia', 'add')  # Informprar Efecto Tendencia Anual
     
     print(f'--> Procesar_ALGO_03 ventana {ventana} - Factores Utilizados: Períodos: {periodos} estacionalidad: {f2} tendencia: {f3}')
         
     df_forecast = Calcular_Demanda_ALGO_03(data, proveedor, etiqueta, ventana, fecha, periodos, f2, f3)
     df_forecast['Codigo_Articulo']= df_forecast['Codigo_Articulo'].astype(int)
     df_forecast['Sucursal']= df_forecast['Sucursal'].astype(int)
-    df_forecast.to_csv(f'{folder}/{etiqueta}_ALGO_03_Solicitudes_Compra.csv', index=False)   # Exportar el resultado a un CSV para su posterior procesamiento
+    # Extraer el surtido de artículos y sucursales
+    surtido = articulos[['C_ARTICULO', 'C_SUCU_EMPR','C_PROVEEDOR_PRIMARIO']]
+    surtido = surtido.rename(columns={'C_ARTICULO': 'Codigo_Articulo', 'C_SUCU_EMPR': 'Sucursal', 'C_PROVEEDOR_PRIMARIO': 'id_proveedor'})
+    surtido['Codigo_Articulo']= surtido['Codigo_Articulo'].astype(int)
+    surtido['Sucursal']= surtido['Sucursal'].astype(int)
+    surtido['id_proveedor']= surtido['id_proveedor'].astype(int)
+    
+    df_final = pd.merge(surtido, df_forecast, on=['Codigo_Articulo', 'Sucursal'], how='left')  # Asegurar que todos los artículos del surtido estén presentes 
+     
+    df_final = df_final.fillna(0)  # Rellenar NaN con 0 para evitar problemas en el CSV
+    df_final['algoritmo'] = df_final['algoritmo'].replace('', pd.NA)
+    df_final['algoritmo'] = df_final['algoritmo'].fillna('ALGO_03')
+    df_final['f1'] = df_final['f1'].replace('', pd.NA)
+    df_final['f1'] = df_final['f1'].fillna(periodos)
+    df_final['f2'] = df_final['f2'].replace('', pd.NA)
+    df_final['f2'] = df_final['f2'].fillna(f2)
+    df_final['f3'] = df_final['f3'].replace('', pd.NA)
+    df_final['f3'] = df_final['f3'].fillna(f3) 
+    
+    # Eliminar la columna duplicada
+    df_final.drop(columns=['id_proveedor_y'], inplace=True)
+    df_final.rename(columns={'id_proveedor_x': 'id_proveedor'}, inplace=True)
+    df_final.to_csv(f'{folder}/{etiqueta}_ALGO_03_Solicitudes_Compra.csv', index=False)   # Exportar el resultado a un CSV para su posterior procesamiento
     print(f'-> ** Datos Exportados: {etiqueta}_ALGO_03_Solicitudes_Compra.csv *** : ventana: {ventana}  - {fecha}')
-    Exportar_Pronostico(df_forecast, proveedor, etiqueta, 'ALGO_03')  # Impactar Datos en la Interface        
+    Exportar_Pronostico(df_final, proveedor, etiqueta, 'ALGO_03')  # Impactar Datos en la Interface        
     return
 
-def Procesar_ALGO_02(data, proveedor, etiqueta, ventana, fecha):    
+def Procesar_ALGO_02(data, articulos, proveedor, etiqueta, ventana, fecha):    
     print(f'--> Procesar_ALGO_02 ventana {ventana} - Holt - No usa Factores')
         
     df_forecast = Calcular_Demanda_ALGO_02(data, proveedor, etiqueta, ventana, fecha)
     df_forecast['Codigo_Articulo']= df_forecast['Codigo_Articulo'].astype(int)
     df_forecast['Sucursal']= df_forecast['Sucursal'].astype(int)
-    df_forecast.to_csv(f'{folder}/{etiqueta}_ALGO_02_Solicitudes_Compra.csv', index=False)   # Exportar el resultado a un CSV para su posterior procesamiento
+    # Extraer el surtido de artículos y sucursales
+    surtido = articulos[['C_ARTICULO', 'C_SUCU_EMPR','C_PROVEEDOR_PRIMARIO']]
+    surtido = surtido.rename(columns={'C_ARTICULO': 'Codigo_Articulo', 'C_SUCU_EMPR': 'Sucursal', 'C_PROVEEDOR_PRIMARIO': 'id_proveedor'})
+    surtido['Codigo_Articulo']= surtido['Codigo_Articulo'].astype(int)
+    surtido['Sucursal']= surtido['Sucursal'].astype(int)
+    surtido['id_proveedor']= surtido['id_proveedor'].astype(int)
+    
+    df_final = pd.merge(surtido, df_forecast, on=['Codigo_Articulo', 'Sucursal'], how='left')  # Asegurar que todos los artículos del surtido estén presentes 
+     
+    df_final = df_final.fillna(0)  # Rellenar NaN con 0 para evitar problemas en el CSV
+    df_final['algoritmo'] = df_final['algoritmo'].replace('', pd.NA)
+    df_final['algoritmo'] = df_final['algoritmo'].fillna('ALGO_02')   
+    
+    # Eliminar la columna duplicada
+    df_final.drop(columns=['id_proveedor_y'], inplace=True)
+    df_final.rename(columns={'id_proveedor_x': 'id_proveedor'}, inplace=True)
+    df_final.to_csv(f'{folder}/{etiqueta}_ALGO_02_Solicitudes_Compra.csv', index=False)   # Exportar el resultado a un CSV para su posterior procesamiento
     print(f'-> ** Datos Exportados: {etiqueta}_ALGO_02_Solicitudes_Compra.csv *** : ventana: {ventana}  - {fecha}')
-    Exportar_Pronostico(df_forecast, proveedor, etiqueta, 'ALGO_02')  # Impactar Datos en la Interface        
+    Exportar_Pronostico(df_final, proveedor, etiqueta, 'ALGO_02')  # Impactar Datos en la Interface        
     return
 
-def Procesar_ALGO_01(data, proveedor, etiqueta, ventana, fecha, factor_last=None, factor_previous=None, factor_year=None):    
-    # Asignar valores por defecto si los factores no están definidos
-    factor_last = 0.77 if factor_last is None else factor_last
-    factor_previous = 0.22 if factor_previous is None else factor_previous
-    factor_year = 0.11 if factor_year is None else factor_year
-
+def Procesar_ALGO_01(data, articulos, proveedor, etiqueta, ventana, fecha, **kwargs): 
+    factor_last = kwargs.get('factor_last', 0.77)  # Último período
+    factor_previous = kwargs.get('factor_previous', 0.22)  # Período anterior   
+    factor_year = kwargs.get('factor_year', 0.11)  # Mismo período del año anterior
+    
     print(f'--> Procesar_ALGO_01 ventana {ventana} - Peso de los Factores Utilizados: último: {factor_last} previo: {factor_previous} año anterior: {factor_year}')
         
     df_forecast = Calcular_Demanda_ALGO_01(data, proveedor, etiqueta, ventana, fecha, factor_last, factor_previous, factor_year)
     df_forecast['Codigo_Articulo']= df_forecast['Codigo_Articulo'].astype(int)
     df_forecast['Sucursal']= df_forecast['Sucursal'].astype(int)
-    df_forecast.to_csv(f'{folder}/{etiqueta}_ALGO_01_Solicitudes_Compra.csv', index=False)   # Exportar el resultado a un CSV para su posterior procesamiento
+    # Extraer el surtido de artículos y sucursales
+    surtido = articulos[['C_ARTICULO', 'C_SUCU_EMPR','C_PROVEEDOR_PRIMARIO']]
+    surtido = surtido.rename(columns={'C_ARTICULO': 'Codigo_Articulo', 'C_SUCU_EMPR': 'Sucursal', 'C_PROVEEDOR_PRIMARIO': 'id_proveedor'})
+    surtido['Codigo_Articulo']= surtido['Codigo_Articulo'].astype(int)
+    surtido['Sucursal']= surtido['Sucursal'].astype(int)
+    surtido['id_proveedor']= surtido['id_proveedor'].astype(int)
     
-    Exportar_Pronostico(df_forecast, proveedor, etiqueta, 'ALGO_01')  # Impactar Datos en la Interface        
+    df_final = pd.merge(surtido, df_forecast, on=['Codigo_Articulo', 'Sucursal'], how='left')  # Asegurar que todos los artículos del surtido estén presentes
+     
+    df_final = df_final.fillna(0)  # Rellenar NaN con 0 para evitar problemas en el CSV
+    df_final['algoritmo'] = df_final['algoritmo'].replace('', pd.NA)
+    df_final['algoritmo'] = df_final['algoritmo'].fillna('ALGO_01')
+    df_final['f1'] = df_final['f1'].replace('', pd.NA)
+    df_final['f1'] = df_final['f1'].fillna(factor_last)
+    df_final['f2'] = df_final['f2'].replace('', pd.NA)
+    df_final['f2'] = df_final['f2'].fillna(factor_previous)
+    df_final['f3'] = df_final['f3'].replace('', pd.NA)
+    df_final['f3'] = df_final['f3'].fillna(factor_year) 
+    
+    # Eliminar la columna duplicada
+    df_final.drop(columns=['id_proveedor_y'], inplace=True)
+    df_final.rename(columns={'id_proveedor_x': 'id_proveedor'}, inplace=True)
+    df_final.to_csv(f'{folder}/{etiqueta}_ALGO_01_Solicitudes_Compra.csv', index=False)   # Exportar el resultado a un CSV para su posterior procesamiento
+    
+    Exportar_Pronostico(df_final, proveedor, etiqueta, 'ALGO_01')  # Impactar Datos en la Interface        
     return
 
 ###---------------------------------------------------------------- 
 # RUTINA PRINCIPAL para SELECCIONAR  el ALGORITMO de FORECAST
 ###---------------------------------------------------------------- 
-def get_forecast( id_proveedor, lbl_proveedor, period_lengh=30, algorithm='basic', f1=None, f2=None, f3=None, current_date=None ):
-    """
-    Genera la predicción de demanda según el algoritmo seleccionado.
+# SE PASO AL S10
+# def get_forecast( id_proveedor, lbl_proveedor, period_lengh=30, algorithm='basic', f1=None, f2=None, f3=None, current_date=None ):
+#     """
+#     Genera la predicción de demanda según el algoritmo seleccionado.
 
-    Parámetros:
-    - id_proveedor: ID del proveedor.
-    - lbl_proveedor: Etiqueta del proveedor.
-    - period_lengh: Número de días del período a analizar (por defecto 30).
-    - algorithm: Algoritmo a utilizar.
-    - current_date: Fecha de referencia; si es None, se toma la fecha máxima de los datos.
-    - factores de ponderación: F1, F2, F3  (No importa en que unidades estén, luego los hace relativos al total del peso)
+#     Parámetros:
+#     - id_proveedor: ID del proveedor.
+#     - lbl_proveedor: Etiqueta del proveedor.
+#     - period_lengh: Número de días del período a analizar (por defecto 30).
+#     - algorithm: Algoritmo a utilizar.
+#     - current_date: Fecha de referencia; si es None, se toma la fecha máxima de los datos.
+#     - factores de ponderación: F1, F2, F3  (No importa en que unidades estén, luego los hace relativos al total del peso)
 
-    Retorna:
-    - Un DataFrame con las predicciones.
-    """
-    
-    print('Dentro del get_forecast')
-    print(f'FORECAST control: {id_proveedor} - {lbl_proveedor} - ventana: {period_lengh} - {algorithm} factores: {f1} - {f2} - {f3}')
-    # Generar los datos de entrada
-    data, articulos = generar_datos(id_proveedor, lbl_proveedor, period_lengh) # type: ignore
+#     Retorna:
+#     - Un DataFrame con las predicciones.
+#     """
 
-        # Determinar la fecha base
-    if current_date is None:
-        current_date = data['Fecha'].max()  # type: ignore Se toma la última fecha en los datos
-    else:
-        current_date = pd.to_datetime(current_date)  # Se asegura que sea un objeto datetime
-    print(f'Fecha actual {current_date}')
-    
+#     print('Dentro del get_forecast')
+#     print(f'FORECAST control: {id_proveedor} - {lbl_proveedor} - ventana: {period_lengh} - {algorithm} factores: {f1} - {f2} - {f3}')
+#     # Generar los datos de entrada
+#     data, articulos = generar_datos(id_proveedor, lbl_proveedor, period_lengh) # type: ignore
 
-    # Selección del algoritmo de predicción
-    match algorithm:
-        case 'ALGO_01':
-            return Procesar_ALGO_01(data, id_proveedor, lbl_proveedor, period_lengh, current_date, f1, f2, f3)  # Promedio Ponderado x 3 Factores
-        case 'ALGO_02':
-            return Procesar_ALGO_02(data, id_proveedor, lbl_proveedor, period_lengh, current_date) # Doble Exponencial - Modelo Holt (Tendencia)
-        case 'ALGO_03':
-            return Procesar_ALGO_03(data, id_proveedor, lbl_proveedor, period_lengh, current_date, f1, f2, f3) # Triple Exponencial Holt-WInter (Tendencia + Estacionalidad) (periodos, add, add)
-        case 'ALGO_04':
-            return Procesar_ALGO_04(data, id_proveedor, lbl_proveedor, period_lengh, current_date, f1) # EWMA con Factor alpha
-        case 'ALGO_05':
-            return Procesar_ALGO_05(data, id_proveedor, lbl_proveedor, period_lengh, current_date) # Promedio Venta Simple en Ventana
-        case 'ALGO_06':
-            return Procesar_ALGO_06(data, id_proveedor, lbl_proveedor, period_lengh, current_date) # Tendencias Ventas Semanales
-        case _:
-            raise ValueError(f"Error: El algoritmo '{algorithm}' no está implementado.")
+#         # Determinar la fecha base
+#     if current_date is None:
+#         current_date = data['Fecha'].max()  # type: ignore Se toma la última fecha en los datos
+#     else:
+#         current_date = pd.to_datetime(current_date)  # Se asegura que sea un objeto datetime
+#     print(f'Fecha actual {current_date}')
+
+
+#     # Selección del algoritmo de predicción
+#     match algorithm:
+#         case 'ALGO_01':
+#             return Procesar_ALGO_01(data, articulos, id_proveedor, lbl_proveedor, period_lengh, current_date, factor_last=f1, factor_previous=f2, factor_year=f3)  # Promedio Ponderado x 3 Factores
+#         case 'ALGO_02':
+#             return Procesar_ALGO_02(data, articulos, id_proveedor, lbl_proveedor, period_lengh, current_date) # Doble Exponencial - Modelo Holt (Tendencia)
+#         case 'ALGO_03':
+#             return Procesar_ALGO_03(data, articulos, id_proveedor, lbl_proveedor, period_lengh, current_date, periodos=f1, estacionalidad=f2, tendencia=f3) # Triple Exponencial Holt-WInter (Tendencia + Estacionalidad) (periodos, add, add)
+#         case 'ALGO_04':
+#             return Procesar_ALGO_04(data, articulos, id_proveedor, lbl_proveedor, period_lengh, current_date, alpha=f1) # EWMA con Factor alpha
+#         case 'ALGO_05':
+#             return Procesar_ALGO_05(data, articulos, id_proveedor, lbl_proveedor, period_lengh, current_date) # Promedio Venta Simple en Ventana
+#         case 'ALGO_06':
+#             return Procesar_ALGO_06(data, articulos, id_proveedor, lbl_proveedor, period_lengh, current_date) # Tendencias Ventas Semanales
+#         case 'ALGO_07':
+#             return Procesar_ALGO_07(data, articulos, id_proveedor, lbl_proveedor, period_lengh, current_date, factor=f1, fecha_base=f2)  # Promedio Simple Ventana Base Movil x Factor
+#         case _:
+#             raise ValueError(f"Error: El algoritmo '{algorithm}' no está implementado.")
 
 
 # -----------------------------------------------------------

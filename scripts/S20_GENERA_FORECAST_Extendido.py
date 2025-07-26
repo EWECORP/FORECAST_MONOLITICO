@@ -52,6 +52,8 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
 
     if df_ventas[['Codigo_Articulo', 'Sucursal']].isnull().any().any():
         print(f"⚠️ Atención: Ventas contiene registros con valores nulos en Código o Sucursal.")
+        df_ventas = df_ventas.dropna(subset=['Codigo_Articulo', 'Sucursal'], how='all')  # Eliminar filas donde ambas columnas son NaN
+        print(f"⚠️ Atención: Se ELIMINARON registros de Ventas que contiene registros con valores nulos en Código o Sucursal.")
     
     # Recuperar Maestro de Artículos
     articulos = pd.read_csv(f'{folder}/{name}_articulos.csv')
