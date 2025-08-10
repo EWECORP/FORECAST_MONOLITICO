@@ -475,9 +475,10 @@ def obtener_datos_stock(id_proveedor, etiqueta):
         # ----------------------------------------------------------------
         query = f"""              
             SELECT codigo_proveedor, codigo_articulo, codigo_sucursal, precio_venta, precio_costo, factor_venta, m_vende_por_peso, stock,             
-            venta_unidades_30_dias, stock_valorizado, venta_valorizada, dias_stock, f_ultima_vta, venta_unidades_1q, venta_unidades_2q
-            
-            FROM src.base_forecast_stock
+                venta_mes_unidades AS venta_unidades_30_dias, (stock * precio_costo) as stock_valorizado, 
+                (venta_mes_unidades * precio_costo) as venta_valorizada, dias_stock, fecha_stock as f_ultima_vta, venta_unidades_1q, venta_unidades_2q
+                
+                FROM src.base_stock_sucursal
             WHERE codigo_proveedor = {id_proveedor}
             ORDER BY codigo_articulo, codigo_sucursal;
         """
@@ -1422,46 +1423,45 @@ def Calcular_Demanda_ALGO_06(df, id_proveedor, etiqueta, ventana, current_date):
 ###----------------------------------------------------------------
 # ALGO_07 Demanda Simple x Factor -  Fecha de Base Movil
 ###----------------------------------------------------------------
-def Calcular_Demanda_ALGO_07(df, id_proveedor, etiqueta, periodo, current_date,  factor, fecha_base):
+
+def Calcular_Demanda_ALGO_07(df, id_proveedor, etiqueta, periodo, current_date, factor, fecha_base):
     print('Dentro del Calcular_Demanda_ALGO_07')
     print(f'FORECAST control: {id_proveedor} - {etiqueta} - ventana: {periodo} - Fecha Actual: {current_date} - factor: {factor}  - Fecha de Base: {fecha_base}')
-    
     start_time = time.time()
-    
-    # Convertir Parámetros a INT o FLOAT
-    period_length = int(periodo)  # Asegurarse de que sea un entero
-    base_date = pd.to_datetime(fecha_base, errors='coerce')  # Convertir a datetime, manejar errores
+
+    # Tipos y normalización
+    period_length = int(periodo)
     factor = float(factor)
+    base_date = _to_ba_naive_date(fecha_base)
 
-    # Convertir la columna 'Fecha' a tipo datetime si no lo está
-    if not pd.api.types.is_datetime64_any_dtype(df['Fecha']):
-        df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
-        df.dropna(subset=['Fecha'], inplace=True)  # Eliminar filas con fechas inválidas
-    
-    # Definir rango de fechas
-    last_period_start = base_date     
-    last_period_end = base_date + pd.Timedelta(days=period_length)
+    # Columna Fecha: convertir a BA naive y a medianoche
+    df['Fecha'] = _to_ba_naive_series_dates(df['Fecha'])
+    df.dropna(subset=['Fecha'], inplace=True)
 
-    # Filtrar los datos para cada uno de los períodos
-    df_last = df[(df['Fecha'] >= last_period_start) & (df['Fecha'] <= last_period_end)]
+    # Asegurar numérico para Unidades (por si vienen strings)
+    df['Unidades'] = pd.to_numeric(df['Unidades'], errors='coerce').fillna(0.0)
 
-    # Agregar las ventas (unidades) por artículo y sucursal para cada período
-    sales_last = df_last.groupby(['Codigo_Articulo', 'Sucursal'])['Unidades'] \
-                        .sum().reset_index().rename(columns={'Unidades': 'ventas_last'})
+    # Rango inclusivo de 'period_length' días: [base_date, base_date + (period_length-1)]
+    last_period_start = base_date
+    last_period_end = base_date + pd.Timedelta(days=period_length - 1)
 
-    # Unir la información de los tres períodos
-    df_forecast = sales_last.copy() 
-    df_forecast.fillna(0, inplace=True)
+    # Filtrado (solo FECHA, sin timestamp)
+    df_last = df[df['Fecha'].between(last_period_start, last_period_end, inclusive='both')]
 
+    # Agregación
+    sales_last = (
+        df_last
+        .groupby(['Codigo_Articulo', 'Sucursal'], as_index=False)['Unidades']
+        .sum().rename(columns={'Unidades': 'ventas_last'})
+    )
+
+    # Estructura de salida
     # Calcular la demanda estimada como el promedio de las ventas del período multiplicado pro el factor
-    df_forecast['Forecast'] = (df_forecast['ventas_last'] * factor)       #Aplico el peso absoluto de los factores.
-    
-    elapsed = round(time.time() - start_time, 2)
-    print(f"🖼️ Preparación de Datos - Tiempo: {elapsed} seg")
+    df_forecast = sales_last.copy()
+    df_forecast['Forecast'] = (df_forecast['ventas_last'] * factor)
     # Redondear la predicción al entero más cercano  y eliminar los Negativos
-    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0) # type: ignore
-    df_forecast['Average'] = round(df_forecast['Forecast'] /period_length ,3)
-    
+    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0)  # type: ignore
+    df_forecast['Average'] = (df_forecast['Forecast'] / period_length).round(3)
     # Agregar las columnas id_proveedor y ventana
     df_forecast['id_proveedor'] = id_proveedor
     df_forecast['algoritmo'] = 'ALGO_07'
@@ -1469,21 +1469,38 @@ def Calcular_Demanda_ALGO_07(df, id_proveedor, etiqueta, periodo, current_date, 
     df_forecast['f1'] = factor
     df_forecast['f2'] = 'na'
     df_forecast['f3'] = 'na'
-    df_forecast['ventas_previous'] = 0  # Por compatibilidad con la estructura
+    df_forecast['ventas_previous'] = 0
     df_forecast['ventas_same_year'] = 0
-    df_forecast['Fecha_Pronostico'] = base_date 
+    df_forecast['Fecha_Pronostico'] = base_date
 
-    # Reordenar las columnas según la especificación
-    df_forecast = df_forecast[['id_proveedor', 'Codigo_Articulo', 'Sucursal',  'algoritmo', 'ventana', 'f1', 'f2', 'f3', 'Fecha_Pronostico',
-                            'Forecast', 'Average','ventas_last', 'ventas_previous', 'ventas_same_year']]
-    
-    elapsed = round(time.time() - start_time, 2)
-    print(f"🖼️ Demanda Calculada - Tiempo: {elapsed} seg")
+    df_forecast = df_forecast[['id_proveedor','Codigo_Articulo','Sucursal','algoritmo','ventana',
+                                'f1','f2','f3','Fecha_Pronostico','Forecast','Average',
+                                'ventas_last','ventas_previous','ventas_same_year']]
+
+    print(f"🖼️ Preparación de Datos - Tiempo: {round(time.time() - start_time, 2)} seg")
+    print(f"🖼️ Demanda Calculada - Tiempo: {round(time.time() - start_time, 2)} seg")
     return df_forecast
 
 
-    # Borrar Columnas Innecesarias
-    # forecast_df.drop(columns=['ventas_last', 'ventas_previous', 'ventas_same_year'], inplace=True)
+###----------------------------------------------------------------
+# RUTINAS DE FORMATOS DE FECHAS
+###----------------------------------------------------------------
+def _to_ba_naive_series_dates(s):
+    s = pd.to_datetime(s, errors='coerce')
+    # Si la serie es tz-aware, convertir a BA y aplanar
+    if getattr(s.dtype, 'tz', None) is not None:
+        s = s.dt.tz_convert('America/Argentina/Buenos_Aires').dt.tz_localize(None)
+    # Normalizar a medianoche (eliminamos hora/min/seg)
+    return s.dt.normalize()
+
+def _to_ba_naive_date(x):
+    ts = pd.to_datetime(x, errors='coerce')
+    # Si viene con tz (por ejemplo, '...Z'), convertir a BA y aplanar
+    if getattr(ts, 'tzinfo', None) is not None:
+        ts = ts.tz_convert('America/Argentina/Buenos_Aires').tz_localize(None)
+    # Normalizar a medianoche
+    return pd.Timestamp(ts.normalize())
+
 
 ###----------------------------------------------------------------
 # RUTINAS DE PROCESAMIENTO DE ALGORITMOS
@@ -1540,7 +1557,7 @@ def Procesar_ALGO_06(data, articulos, proveedor, etiqueta, ventana, fecha):
     surtido['id_proveedor']= surtido['id_proveedor'].astype(int)
     
     df_final = pd.merge(surtido, df_forecast, on=['Codigo_Articulo', 'Sucursal'], how='left')  # Asegurar que todos los artículos del surtido estén presentes
-     
+    
     df_final = df_final.fillna(0)  # Rellenar NaN con 0 para evitar problemas en el CSV
     df_final['algoritmo'] = df_final['algoritmo'].replace('', pd.NA)
     df_final['algoritmo'] = df_final['algoritmo'].fillna('ALGO_06') 

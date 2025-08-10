@@ -37,6 +37,7 @@ folder = f"{secrets['BASE_DIR']}/{secrets['FOLDER_DATOS']}"
 # Solo importa lo necesario desde el módulo de funciones
 from funciones_forecast import (
     Open_Conn_Postgres,
+    Open_Diarco_Data,
     mover_archivos_procesados,
     actualizar_site_ids,
     get_precios,
@@ -291,6 +292,91 @@ def actualizar_site_ids(df_forecast_ext, conn, name):
     return df_forecast_ext
 
 
+def calcular_otif(idproveedor):
+    conn_diarco = Open_Diarco_Data()
+    if conn_diarco is None:
+        raise RuntimeError("Sin conexión a DIARCO para calcular OTIF")
+    
+    # Chequeo de existencia de tablas (ayuda a diagnosticar case/schemas)
+    with conn_diarco.cursor() as cur:
+        cur.execute("SELECT to_regclass('src.t080_oc_cabe'), to_regclass('src.t081_oc_deta');")
+        t1, t2 = cur.fetchone()
+        if t1 is None or t2 is None:
+            # Intento alternativo por si las crearon con mayúsculas entrecomilladas
+            cur.execute("SELECT to_regclass('src.\"T080_OC_CABE\"'), to_regclass('src.\"T081_OC_DETA\"');")
+            T1, T2 = cur.fetchone()
+            if T1 is None or T2 is None:
+                raise RuntimeError("Tablas de OC no existen en diarco_data.src (revise nombres/case y esquema)")
+
+    query = f"""
+    WITH OC_Detalles_Calculados AS (
+        SELECT
+            cab.c_proveedor,
+            cab.c_oc,
+            cab.u_prefijo_oc,
+            cab.u_sufijo_oc,
+            cab.f_emision,
+            cab.f_entrega,
+            cab.c_situac,
+            cab.u_dias_limite_entrega,
+            EXTRACT(YEAR FROM cab.f_entrega)::INTEGER AS anio_entrega,
+            EXTRACT(MONTH FROM cab.f_entrega)::INTEGER AS mes_entrega,
+            (cab.f_emision + (cab.u_dias_limite_entrega * INTERVAL '1 day')) AS fecha_acordada,
+            (COALESCE(det.q_factor_empr_ped, 0) * COALESCE(det.q_bultos_empr_ped, 0)) AS cantidad_pedida,
+            COALESCE(det.q_unid_cumplidas, 0) AS cantidad_cumplida,
+            CASE WHEN cab.f_entrega <= (cab.f_emision + (cab.u_dias_limite_entrega * INTERVAL '1 day')) THEN 1 ELSE 0 END AS es_en_tiempo,
+            CASE WHEN COALESCE(det.q_unid_cumplidas, 0) > 0 THEN 1 ELSE 0 END AS es_sku_recibido
+        FROM src.t080_oc_cabe cab
+        JOIN src.t081_oc_deta det
+          ON cab.c_oc = det.c_oc
+         AND cab.u_prefijo_oc = det.u_prefijo_oc
+         AND cab.u_sufijo_oc = det.u_sufijo_oc
+        WHERE cab.f_entrega >= DATE_TRUNC('month', CURRENT_DATE - INTERVAL '6 months')
+          AND cab.f_entrega <= CURRENT_TIMESTAMP
+          AND cab.u_dias_limite_entrega > 0
+          AND cab.f_entrega > cab.f_emision
+          AND cab.c_proveedor = %s
+    ),
+    OC_Agregada AS (
+        SELECT c_oc, u_prefijo_oc, u_sufijo_oc, anio_entrega, mes_entrega,
+               MIN(es_en_tiempo) AS oc_en_tiempo,
+               MIN(es_sku_recibido) AS oc_full_sku,
+               SUM(cantidad_pedida) AS total_pedido,
+               SUM(cantidad_cumplida) AS total_cumplido
+        FROM OC_Detalles_Calculados
+        GROUP BY c_oc, u_prefijo_oc, u_sufijo_oc, anio_entrega, mes_entrega
+    ),
+    OC_Mensual AS (
+        SELECT anio_entrega, mes_entrega,
+               COUNT(*) AS total_oc,
+               SUM(oc_en_tiempo) AS total_on_time,
+               SUM(oc_full_sku) AS total_full_sku,
+               SUM(CASE WHEN total_pedido = 0 THEN 0
+                        ELSE LEAST(total_cumplido * 1.0 / NULLIF(total_pedido,0), 1) END) AS total_exactitud
+        FROM OC_Agregada
+        GROUP BY anio_entrega, mes_entrega
+    )
+    SELECT
+        TO_CHAR(MAKE_DATE(anio_entrega, mes_entrega, 1), 'TMMonth YYYY') AS Mes,
+        total_oc AS cantidad_oc,
+        ROUND(total_on_time * 100.0 / NULLIF(total_oc,0), 2) AS on_time_pct,
+        ROUND(total_full_sku * 100.0 / NULLIF(total_oc,0), 2) AS full_sku_pct,
+        ROUND(total_exactitud * 100.0 / NULLIF(total_oc,0), 2) AS full_cant_articulos_pct,
+        ROUND(((total_on_time * 100.0 / NULLIF(total_oc,0)) * 0.20
+             + (total_full_sku * 100.0 / NULLIF(total_oc,0)) * 0.30
+             + (total_exactitud * 100.0 / NULLIF(total_oc,0)) * 0.50), 2) AS otif_ponderado_pct
+    FROM OC_Mensual
+    ORDER BY anio_entrega, mes_entrega;
+    """
+
+    df_otif = pd.read_sql(query, conn_diarco, params=[idproveedor])
+    if df_otif.empty:
+        return 0.0
+
+    otif_ponderado = float(df_otif.iloc[-1]["otif_ponderado_pct"])
+    conn_diarco.close()
+    return otif_ponderado
+
 def mover_archivos_procesados(algoritmo, folder):
     destino = os.path.join(folder, "procesado")
     os.makedirs(destino, exist_ok=True)  # Crea la carpeta si no existe
@@ -503,7 +589,12 @@ if __name__ == "__main__":
                 quiebres ='G'
             else:
                 quiebres = 'white' # Valor predeterminado
-            print("Antes de publicar:")                       
+            print("Antes de publicar:")
+            
+            otif_calculado = calcular_otif(id_proveedor)
+            print(f"OTIF calculado: {otif_calculado:.2f}%")  
+            
+            # Actualizar la ejecución con los datos calculados                      
             update_execution_execute(
                 forecast_execution_execute_id,
                 supply_forecast_execution_status_id=45,
@@ -513,7 +604,7 @@ if __name__ == "__main__":
                 graphic=mini_grafico,
                 total_products=total_productos,
                 total_units=total_unidades,
-                otif = randint(70, 100),  # Simulación de OTIF entre 70 y 100
+                otif = otif_calculado,  # Simulación de OTIF entre 70 y 100
                 sotck_days = days, # Viene de la Nueva Rutina              
                 sotck_days_colors = semaforo, # Nueva Rutina
                 maximum_backorder_days = maximo_atraso_oc, # Calcula Mäxima Demora
