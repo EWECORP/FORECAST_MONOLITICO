@@ -148,6 +148,14 @@ def safe_float(value, default=0.0):
         return float(value)
     except:
         return default
+    
+def safe_float_with_default(x, default=0.247):
+    try:
+        val = float(x)
+        return default if val == 0 else val
+    except (ValueError, TypeError):
+        return default
+
 
 def safe_aggregate(series, divisor=1.0, round_decimals=2):
     total = series.sum(skipna=True)
@@ -190,7 +198,7 @@ def publicar_forecast_a_connexa(df_forecast_ext, forecast_execution_execute_id, 
                 row.get('site_id'),
                 forecast_execution_execute_id,
                 row.get('algoritmo'),
-                safe_float(row.get('Average', 0)),
+                safe_float_with_default(row.get('Average')) # safe_float(row.get('Average', 0)),  # PEDIDO MINIMO 
                 row.get('Codigo_Articulo'),
                 row.get('Sucursal'),
                 id_proveedor,
