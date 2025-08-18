@@ -149,11 +149,12 @@ def safe_float(value, default=0.0):
     except:
         return default
     
-def safe_float_with_default(x, default=0.247):
+def safe_float_with_default(value, default=0.247):
     try:
-        val = float(x)
-        return default if val == 0 else val
-    except (ValueError, TypeError):
+        if pd.isna(value) or value in [np.inf, -np.inf]:
+            return default
+        return float(value)
+    except:
         return default
 
 
@@ -198,7 +199,7 @@ def publicar_forecast_a_connexa(df_forecast_ext, forecast_execution_execute_id, 
                 row.get('site_id'),
                 forecast_execution_execute_id,
                 row.get('algoritmo'),
-                safe_float_with_default(row.get('Average')) # safe_float(row.get('Average', 0)),  # PEDIDO MINIMO 
+                safe_float_with_default(row.get('Average', 0.247)), # safe_float(row.get('Average', 0)),  # PEDIDO MINIMO 
                 row.get('Codigo_Articulo'),
                 row.get('Sucursal'),
                 id_proveedor,
