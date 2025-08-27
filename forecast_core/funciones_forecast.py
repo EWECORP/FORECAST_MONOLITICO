@@ -274,13 +274,14 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         # Aquí puedes incluir el código para generar los datos si no EXISTE el Archivo en el CACHE
         conn = Open_Diarco_Data()
 
-        # --- ARTÍCULOS --- NUEVA FUENTE GLOBAL 06/25 -- SP_BASE_PRODUCTOS_VIGENTES
+        # --- ARTÍCULOS --- NUEVA FUENTE GLOBAL 06/25 -- SP_BASE_PRODUCTOS_VIGENTES  (OJO NO FILTRA HABILITADOS)
         query_articulos = f"""
             SELECT DISTINCT c_sucu_empr, c_articulo, c_proveedor_primario, abastecimiento, cod_cd, habilitado,  
                     cod_comprador AS c_comprador, 
                     q_factor_compra, full_capacity_pallet, number_of_layers, number_of_boxes_per_layer
             FROM src.base_productos_vigentes
             WHERE c_proveedor_primario = {id_proveedor}
+               AND habilitado = 1
             ORDER BY c_articulo, c_proveedor_primario;
         """
         articulos = pd.read_sql(query_articulos, conn) # type: ignore
@@ -307,7 +308,8 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         # --- BASE STOCK --- NUEVA FUENTE GLOBAL 06/25 -- SP_BASE_STOCK_SUCURSAL
         query_stock_sucursal = f"""
             SELECT codigo_articulo, codigo_sucursal, codigo_proveedor, pedido_sgm, stock, 
-                pedido_pendiente, i_lista_calculado, factor_venta, precio_venta, precio_costo, 
+                pedido_pendiente, i_lista_calculado, factor_venta, ultimo_ingreso, fecha_ultimo_ingreso,
+                fecha_ultima_venta, precio_venta, precio_costo, 
                 q_dias_stock, transfer_pendiente, venta_unidades_1q, venta_unidades_2q
             FROM src.base_stock_sucursal
             WHERE codigo_proveedor = {id_proveedor}
@@ -333,6 +335,7 @@ def generar_datos(id_proveedor, etiqueta, ventana):
         stock_sucursal["PEDIDO_PENDIENTE"] = pd.to_numeric(stock_sucursal["PEDIDO_PENDIENTE"], errors="coerce").astype("Float64")
         stock_sucursal["I_LISTA_CALCULADO"] = pd.to_numeric(stock_sucursal["I_LISTA_CALCULADO"], errors="coerce").astype("Float64")
         stock_sucursal['FACTOR_VENTA'] = stock_sucursal['FACTOR_VENTA'].astype(int)
+        stock_sucursal["ULTIMO_INGRESO"] = pd.to_numeric(stock_sucursal["ULTIMO_INGRESO"], errors="coerce").astype("Float64")
         stock_sucursal['PRECIO_VENTA'] = pd.to_numeric(stock_sucursal['PRECIO_VENTA'], errors='coerce').astype('Float64')
         stock_sucursal['PRECIO_COSTO'] = pd.to_numeric(stock_sucursal['PRECIO_COSTO'], errors='coerce').astype('Float64')
         stock_sucursal['Q_DIAS_STOCK'] = pd.to_numeric(stock_sucursal['Q_DIAS_STOCK'], errors='coerce').astype('Int64')
@@ -1538,6 +1541,12 @@ def Procesar_ALGO_07(data, articulos, proveedor, etiqueta, periodo, current_date
     # Eliminar la columna duplicada
     df_final.drop(columns=['id_proveedor_y'], inplace=True)
     df_final.rename(columns={'id_proveedor_x': 'id_proveedor'}, inplace=True)
+    # Eliminar duplicados considerando la clave compuesta
+    df_final = df_final.drop_duplicates(
+        subset=['Codigo_Articulo', 'Sucursal', 'id_proveedor', 'algoritmo'],
+        keep='last'   # conserva el último registro según el orden actual del DataFrame
+    ).reset_index(drop=True)
+
     df_final.to_csv(f'{folder}/{etiqueta}_ALGO_07_Solicitudes_Compra.csv', index=False)   # Exportar el resultado a un CSV para su posterior procesamiento
     
     Exportar_Pronostico(df_final, proveedor, etiqueta, 'ALGO_07')  # Impactar Datos en la Interface        
@@ -1571,6 +1580,12 @@ def Procesar_ALGO_06(data, articulos, proveedor, etiqueta, ventana, fecha):
     # Eliminar la columna duplicada
     df_final.drop(columns=['id_proveedor_y'], inplace=True)
     df_final.rename(columns={'id_proveedor_x': 'id_proveedor'}, inplace=True)
+    # Eliminar duplicados considerando la clave compuesta
+    df_final = df_final.drop_duplicates(
+        subset=['Codigo_Articulo', 'Sucursal', 'id_proveedor', 'algoritmo'],
+        keep='last'   # conserva el último registro según el orden actual del DataFrame
+    ).reset_index(drop=True)
+
     df_final.to_csv(f'{folder}/{etiqueta}_ALGO_06_Solicitudes_Compra.csv', index=False)
     print(f'-> ** Solicitudes Exportadas: {etiqueta}_ALGO_06_Solicitudes_Compra.csv *** : ventana: {ventana}  - {fecha}')
     
@@ -1618,6 +1633,12 @@ def Procesar_ALGO_05(data, articulos, proveedor, etiqueta, ventana, fecha):
     # Eliminar la columna duplicada
     df_final.drop(columns=['id_proveedor_y'], inplace=True)
     df_final.rename(columns={'id_proveedor_x': 'id_proveedor'}, inplace=True)
+    # Eliminar duplicados considerando la clave compuesta
+    df_final = df_final.drop_duplicates(
+        subset=['Codigo_Articulo', 'Sucursal', 'id_proveedor', 'algoritmo'],
+        keep='last'   # conserva el último registro según el orden actual del DataFrame
+    ).reset_index(drop=True)
+
     df_final.to_csv(f'{folder}/{etiqueta}_ALGO_05_Solicitudes_Compra.csv', index=False)
     
     Exportar_Pronostico(df_final, proveedor, etiqueta, 'ALGO_05')  # Impactar Datos en la Interface   
@@ -1662,6 +1683,12 @@ def Procesar_ALGO_04(data, articulos, proveedor, etiqueta, ventana, fecha,  **kw
     # Eliminar la columna duplicada
     df_final.drop(columns=['id_proveedor_y'], inplace=True)
     df_final.rename(columns={'id_proveedor_x': 'id_proveedor'}, inplace=True)
+    # Eliminar duplicados considerando la clave compuesta
+    df_final = df_final.drop_duplicates(
+        subset=['Codigo_Articulo', 'Sucursal', 'id_proveedor', 'algoritmo'],
+        keep='last'   # conserva el último registro según el orden actual del DataFrame
+    ).reset_index(drop=True)
+
     df_final.to_csv(f'{folder}/{etiqueta}_ALGO_04_Solicitudes_Compra.csv', index=False)   # Exportar el resultado a un CSV para su posterior procesamiento
     
     Exportar_Pronostico(df_final, proveedor, etiqueta, 'ALGO_04')  # Impactar Datos en la Interface        
@@ -1700,6 +1727,12 @@ def Procesar_ALGO_03(data, articulos, proveedor, etiqueta, ventana, fecha, **kwa
     # Eliminar la columna duplicada
     df_final.drop(columns=['id_proveedor_y'], inplace=True)
     df_final.rename(columns={'id_proveedor_x': 'id_proveedor'}, inplace=True)
+    # Eliminar duplicados considerando la clave compuesta
+    df_final = df_final.drop_duplicates(
+        subset=['Codigo_Articulo', 'Sucursal', 'id_proveedor', 'algoritmo'],
+        keep='last'   # conserva el último registro según el orden actual del DataFrame
+    ).reset_index(drop=True)
+
     df_final.to_csv(f'{folder}/{etiqueta}_ALGO_03_Solicitudes_Compra.csv', index=False)   # Exportar el resultado a un CSV para su posterior procesamiento
     print(f'-> ** Datos Exportados: {etiqueta}_ALGO_03_Solicitudes_Compra.csv *** : ventana: {ventana}  - {fecha}')
     Exportar_Pronostico(df_final, proveedor, etiqueta, 'ALGO_03')  # Impactar Datos en la Interface        
@@ -1727,6 +1760,12 @@ def Procesar_ALGO_02(data, articulos, proveedor, etiqueta, ventana, fecha):
     # Eliminar la columna duplicada
     df_final.drop(columns=['id_proveedor_y'], inplace=True)
     df_final.rename(columns={'id_proveedor_x': 'id_proveedor'}, inplace=True)
+    # Eliminar duplicados considerando la clave compuesta
+    df_final = df_final.drop_duplicates(
+        subset=['Codigo_Articulo', 'Sucursal', 'id_proveedor', 'algoritmo'],
+        keep='last'   # conserva el último registro según el orden actual del DataFrame
+    ).reset_index(drop=True)
+
     df_final.to_csv(f'{folder}/{etiqueta}_ALGO_02_Solicitudes_Compra.csv', index=False)   # Exportar el resultado a un CSV para su posterior procesamiento
     print(f'-> ** Datos Exportados: {etiqueta}_ALGO_02_Solicitudes_Compra.csv *** : ventana: {ventana}  - {fecha}')
     Exportar_Pronostico(df_final, proveedor, etiqueta, 'ALGO_02')  # Impactar Datos en la Interface        
@@ -1764,6 +1803,12 @@ def Procesar_ALGO_01(data, articulos, proveedor, etiqueta, ventana, fecha, **kwa
     # Eliminar la columna duplicada
     df_final.drop(columns=['id_proveedor_y'], inplace=True)
     df_final.rename(columns={'id_proveedor_x': 'id_proveedor'}, inplace=True)
+    # Eliminar duplicados considerando la clave compuesta
+    df_final = df_final.drop_duplicates(
+        subset=['Codigo_Articulo', 'Sucursal', 'id_proveedor', 'algoritmo'],
+        keep='last'   # conserva el último registro según el orden actual del DataFrame
+    ).reset_index(drop=True)
+
     df_final.to_csv(f'{folder}/{etiqueta}_ALGO_01_Solicitudes_Compra.csv', index=False)   # Exportar el resultado a un CSV para su posterior procesamiento
     
     Exportar_Pronostico(df_final, proveedor, etiqueta, 'ALGO_01')  # Impactar Datos en la Interface        
