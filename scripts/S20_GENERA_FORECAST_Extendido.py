@@ -36,6 +36,7 @@ from funciones_forecast  import (
 )
 
 import pandas as pd # uso localmente la lectura de archivos.
+from datetime import datetime, timedelta
 #import ace_tools_open as tools
 
 print(f"-> Datos Recuperados del CACHE: {secrets['FOLDER_DATOS']}")
@@ -49,6 +50,39 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
     df_ventas['Codigo_Articulo'] = pd.to_numeric(df_ventas['Codigo_Articulo'], errors='coerce').astype('Int64')
     df_ventas['Sucursal'] = pd.to_numeric(df_ventas['Sucursal'], errors='coerce').astype('Int64')   
     df_ventas['Fecha']= pd.to_datetime(df_ventas['Fecha'])
+
+    # Validar que no haya nulos en Código o Sucursal
+    # Fecha de corte: la más reciente en el dataframe
+    fecha_max = df_ventas['Fecha'].max()
+
+    # Definir los dos rangos
+    rango_1_inicio = fecha_max - timedelta(days=14)  # últimos 15 días
+    rango_1_fin = fecha_max
+
+    rango_2_inicio = fecha_max - timedelta(days=29)  # 15 días anteriores
+    rango_2_fin = fecha_max - timedelta(days=15)
+
+    # Filtrar por cada rango
+    ventas_rango_1 = df_ventas[(df_ventas['Fecha'] >= rango_1_inicio) & (df_ventas['Fecha'] <= rango_1_fin)]
+    ventas_rango_2 = df_ventas[(df_ventas['Fecha'] >= rango_2_inicio) & (df_ventas['Fecha'] <= rango_2_fin)]
+
+    # Agrupar y sumar
+    grupo_cols = ['Codigo_Articulo', 'Sucursal']
+
+    suma_rango_1 = ventas_rango_1.groupby(grupo_cols)['Unidades'].sum().reset_index()
+    suma_rango_2 = ventas_rango_2.groupby(grupo_cols)['Unidades'].sum().reset_index()
+
+    # Renombrar columnas
+    suma_rango_1.rename(columns={'Unidades': 'Ventas_rango_1'}, inplace=True)
+    suma_rango_2.rename(columns={'Unidades': 'Ventas_rango_2'}, inplace=True)
+
+    # Unir ambos resultados, asegurando que si no hay ventas se rellene con 0
+    resultado = pd.merge(suma_rango_1, suma_rango_2, on=grupo_cols, how='outer').fillna(0)
+
+    # Convertir a enteros si se desea
+    resultado['Ventas_rango_1'] = resultado['Ventas_rango_1'].astype(int)
+    resultado['Ventas_rango_2'] = resultado['Ventas_rango_2'].astype(int)
+
 
     if df_ventas[['Codigo_Articulo', 'Sucursal']].isnull().any().any():
         print(f"⚠️ Atención: Ventas contiene registros con valores nulos en Código o Sucursal.")
@@ -123,6 +157,13 @@ def extender_datos_forecast(algoritmo, name, id_proveedor):
         how='left'
     )
     df_merged.drop(columns=['C_SUCU_EMPR', 'C_ARTICULO'], inplace=True)
+
+    df_merged = df_merged.merge(
+    resultado,
+    on=['Sucursal', 'Codigo_Articulo'],
+    how='left'
+    )
+
 
     print(f"🔍 Forecast original: {len(df_forecast)} registros")
     print(f"📈 Forecast extendido: {len(df_merged)} registros")

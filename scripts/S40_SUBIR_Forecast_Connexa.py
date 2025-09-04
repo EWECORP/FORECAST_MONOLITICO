@@ -227,8 +227,8 @@ def publicar_forecast_a_connexa(df_forecast_ext, forecast_execution_execute_id, 
                 safe_int(row.get('Q_DIAS_STOCK', 0)),
                 0,
                 row.get('HABILITADO', 1) == 0,
-                safe_float(row.get('VENTA_UNIDADES_2Q', 0)),
-                safe_float(row.get('VENTA_UNIDADES_1Q', 0)),
+                safe_float(row.get('Ventas_rango_2', 0)),
+                safe_float(row.get('Ventas_rango_1', 0)),
                 safe_int(row.get('C_COMPRADOR', 0))
             )
 
