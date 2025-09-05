@@ -554,9 +554,22 @@ if __name__ == "__main__":
                 print(df_forecast_ext[['Forecast_VENTA', 'Forecast_COSTO', 'MARGEN', 'Forecast']].describe())
                 raise
 
+            # === NUEVO: si la sucursal es nueva y no hay ventas históricas, minigráfico en blanco
+            no_hay_ventas = (
+                df_forecast_ext.get('ventas_last', pd.Series([0], dtype='float64')).fillna(0).sum() == 0 and
+                df_forecast_ext.get('ventas_previous', pd.Series([0], dtype='float64')).fillna(0).sum() == 0 and
+                df_forecast_ext.get('ventas_same_year', pd.Series([0], dtype='float64')).fillna(0).sum() == 0
+            )
+
             # Mini gráfico
-            mini_grafico = generar_mini_grafico(folder, name)
-            print(f"Mini gráfico generado: {mini_grafico}")
+            if no_hay_ventas:
+                mini_grafico = "{}"   # Alternativa: None si prefieren guardar NULL en DB
+                print("Mini gráfico omitido por sucursal sin ventas históricas.")
+            else:
+                mini_grafico = generar_mini_grafico(folder, name)
+                print(f"-> Mini gráfico generado: {id_proveedor}, Label: {name}")
+                #print(f"Mini gráfico generado: {mini_grafico}")
+
             # DATOS COMPLEMENTARIOS
             df_stock = obtener_datos_stock(id_proveedor= id_proveedor, etiqueta= algoritmo )
             print(f"-> Datos de Stock Recuperados: {id_proveedor}, Label: {name}")
