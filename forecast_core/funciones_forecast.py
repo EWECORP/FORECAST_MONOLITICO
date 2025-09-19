@@ -5,7 +5,7 @@
 # Se mantiene por Compatibilidad con el resto de la aplicación las funciones _OLD
 """
 funciones_forecast.py
-Versión 1.3.7
+Versión 1.3.10
 
 Este módulo contiene todas las funciones necesarias para:
 - conexión a bases de datos
@@ -18,6 +18,10 @@ Este módulo contiene todas las funciones necesarias para:
 - NUEVA Generación Masiva de Datos
 - Asegurar INCLUIR surtido de artículos y sucursales en los resultados de pronóstico SIN VENTAS
 - Optimización de Procesos y Limpieza de Datos asegurar reindexado antes de filtrar AVERAGE ALGO 05
+- Nuevas Funciones de Limpieza y Preparación de DataFrames
+- Nuevas Funciones de Generación de Datos para Pronóstico (Artículos, Stock, Ventas)
+- Adecuar Algoritmos para utilizar en PRODUCTOS PESABLES (Algoritmos 01,05,06,07)
+-
 
 """
 
@@ -492,7 +496,8 @@ def generar_datos(
             codigo_articulo, codigo_sucursal, codigo_proveedor, pedido_sgm, stock,
             pedido_pendiente, i_lista_calculado, factor_venta, ultimo_ingreso, fecha_ultimo_ingreso,
             fecha_ultima_venta, precio_venta, precio_costo,
-            q_dias_stock, transfer_pendiente, venta_unidades_1q, venta_unidades_2q
+            q_dias_stock, transfer_pendiente, venta_unidades_1q, venta_unidades_2q,
+            q_dias_sobre_stock, dias_preparacion, importe_minimo, bultos_minimo
         FROM src.base_stock_sucursal
         WHERE {' AND '.join(where_stock)}
         ORDER BY codigo_articulo, codigo_sucursal;
@@ -519,6 +524,12 @@ def generar_datos(
         stock_sucursal["FACTOR_VENTA"] = pd.to_numeric(stock_sucursal["FACTOR_VENTA"], errors="coerce").astype("Int64")
     if "Q_DIAS_STOCK" in stock_sucursal.columns:
         stock_sucursal["Q_DIAS_STOCK"] = pd.to_numeric(stock_sucursal["Q_DIAS_STOCK"], errors="coerce").astype("Int64")
+    if "Q_DIAS_SOBRE_STOCK" in stock_sucursal.columns:
+        stock_sucursal["Q_DIAS_SOBRE_STOCK"] = pd.to_numeric(stock_sucursal["Q_DIAS_SOBRE_STOCK"], errors="coerce").astype("Int64") 
+    if "DIAS_PREPARACION" in stock_sucursal.columns:
+        stock_sucursal["DIAS_PREPARACION"] = pd.to_numeric(stock_sucursal["DIAS_PREPARACION"], errors="coerce").astype("Int64") 
+    if "IMPORTE_MINIMO" in stock_sucursal.columns:
+        stock_sucursal["IMPORTE_MINIMO"] = pd.to_numeric(stock_sucursal["IMPORTE_MINIMO"], errors="coerce").astype("Float64")   
 
     stock_sucursal.to_csv(archivo_stock, index=False, encoding='utf-8')
     print(f"---> Datos de Stock Sucursal guardados")
@@ -1262,39 +1273,68 @@ def medir_tiempo(func):
 ###----------------------------------------------------------------
 # ALGO_01 Promedio de Ventas Ponderado 
 ###---------------------------------------------------------------- 
-def Calcular_Demanda_ALGO_01(df, id_proveedor, etiqueta, period_length, current_date, factor_last, factor_previous, factor_year):
+import numpy as np
+import pandas as pd
+import time
+
+def Calcular_Demanda_ALGO_01(
+    df,
+    id_proveedor,
+    etiqueta,
+    period_length,
+    current_date,
+    factor_last,
+    factor_previous,
+    factor_year,
+    decimales: int = 3,                 # precisión para SKU pesables (p.ej., 3)
+    modo_redondeo: str = 'ceil',        # 'ceil' | 'floor' | 'round' (aplica a Forecast cuando es decimal)
+    forecast_con_decimales: bool = True # True: Forecast decimal; False: entero (compatibilidad histórica)
+    ):
     print('Dentro del Calcular_Demanda_ALGO_01')
-    print(f'FORECAST control: {id_proveedor} - {etiqueta} - ventana: {period_length} - factores: {factor_last} - {factor_previous} - {factor_year}')  
+    print(f'FORECAST control: {id_proveedor} - {etiqueta} - ventana: {period_length} - '
+          f'factores: {factor_last} - {factor_previous} - {factor_year}')
     start_time = time.time()
 
-       # ---------- Conversión y validación de parámetros ----------
+    # ---------- Conversión y validación de parámetros ----------
     try:
         period_length = int(period_length)
         if period_length <= 0:
             raise ValueError("period_length debe ser > 0.")
     except Exception as e:
         print(f"Error en period_length: {e}")
-        return pd.DataFrame()
+        cols = ['id_proveedor','Codigo_Articulo','Sucursal','algoritmo','ventana','f1','f2','f3',
+                'Fecha_Pronostico','Forecast','Average','ventas_last','ventas_previous','ventas_same_year']
+        return pd.DataFrame(columns=cols)
 
     def _to_pos_float(x, default=1.0):
         try:
             val = float(x)
-            return max(val, 0.0)          # evitamos pesos negativos
+            return max(val, 0.0)
         except Exception:
             return float(default)
 
-    # Mantiene semántica de pesos absolutos (NO normaliza por suma)
-    factor_last     = _to_pos_float(factor_last, default=0.8)
+    # Pesos absolutos (no normalizados)
+    factor_last     = _to_pos_float(factor_last,     default=0.8)
     factor_previous = _to_pos_float(factor_previous, default=0.1)
-    factor_year     = _to_pos_float(factor_year, default=0.2)
+    factor_year     = _to_pos_float(factor_year,     default=0.2)
 
     # ---------- Normalización de datos ----------
     df = df.copy()
     if not pd.api.types.is_datetime64_any_dtype(df['Fecha']):
         df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
     df = df.dropna(subset=['Fecha'])
-    df['Fecha'] = df['Fecha'].dt.normalize()  # anclar al día calendario
-    df['Unidades'] = pd.to_numeric(df['Unidades'], errors='coerce').fillna(0)
+    df['Fecha'] = df['Fecha'].dt.normalize()  # día calendario
+
+    # Unidades como float (admite decimales en pesables)
+    df['Unidades'] = pd.to_numeric(df['Unidades'], errors='coerce').fillna(0.0)
+
+    # Llaves a numérico -> enteros anulables (robustez en merges)
+    for col in ['Codigo_Articulo', 'Sucursal']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    df = df.dropna(subset=['Codigo_Articulo', 'Sucursal'])
+    df['Codigo_Articulo'] = df['Codigo_Articulo'].round(0).astype('Int64')
+    df['Sucursal']        = df['Sucursal'].round(0).astype('Int64')
 
     # ---------- Preagregación diaria (elimina duplicados por día/SKU/Sucursal) ----------
     df_daily = (df.groupby(['Codigo_Articulo', 'Sucursal', 'Fecha'], as_index=False)['Unidades']
@@ -1310,41 +1350,60 @@ def Calcular_Demanda_ALGO_01(df, id_proveedor, etiqueta, period_length, current_
     same_period_last_year_start = (current_date - pd.DateOffset(years=1)) - pd.Timedelta(days=period_length - 1)
     same_period_last_year_end   = (current_date - pd.DateOffset(years=1))
 
-     # ---------- Agregaciones por período (sobre df_daily ya deduplicado) ----------
-    m = (df_daily['Fecha'] >= last_period_start) & (df_daily['Fecha'] <= last_period_end)
-    sales_last = (df_daily.loc[m]
-                  .groupby(['Codigo_Articulo', 'Sucursal'])['Unidades']
-                  .sum().reset_index().rename(columns={'Unidades': 'ventas_last'}))
+    # ---------- Agregaciones por período (sobre df_daily ya deduplicado) ----------
+    def _sum_in_range(dfi, start, end, out_col):
+        m = (dfi['Fecha'] >= start) & (dfi['Fecha'] <= end)
+        out = (dfi.loc[m]
+               .groupby(['Codigo_Articulo', 'Sucursal'])['Unidades']
+               .sum()
+               .reset_index()
+               .rename(columns={'Unidades': out_col}))
+        out[out_col] = pd.to_numeric(out[out_col], errors='coerce').fillna(0.0)
+        return out
 
-    m = (df_daily['Fecha'] >= previous_period_start) & (df_daily['Fecha'] <= previous_period_end)
-    sales_previous = (df_daily.loc[m]
-                      .groupby(['Codigo_Articulo', 'Sucursal'])['Unidades']
-                      .sum().reset_index().rename(columns={'Unidades': 'ventas_previous'}))
+    sales_last      = _sum_in_range(df_daily, last_period_start,       last_period_end,       'ventas_last')
+    sales_previous  = _sum_in_range(df_daily, previous_period_start,   previous_period_end,   'ventas_previous')
+    sales_same_year = _sum_in_range(df_daily, same_period_last_year_start, same_period_last_year_end, 'ventas_same_year')
 
-    m = (df_daily['Fecha'] >= same_period_last_year_start) & (df_daily['Fecha'] <= same_period_last_year_end)
-    sales_same_year = (df_daily.loc[m]
-                       .groupby(['Codigo_Articulo', 'Sucursal'])['Unidades']
-                       .sum().reset_index().rename(columns={'Unidades': 'ventas_same_year'}))
-    
-     # ---------- Unión de períodos y cálculo ponderado ----------
-    df_forecast = pd.merge(sales_last, sales_previous, on=['Codigo_Articulo', 'Sucursal'], how='outer')
-    df_forecast = pd.merge(df_forecast, sales_same_year, on=['Codigo_Articulo', 'Sucursal'], how='outer')
-    df_forecast[['ventas_last', 'ventas_previous', 'ventas_same_year']] = \
-        df_forecast[['ventas_last', 'ventas_previous', 'ventas_same_year']].fillna(0)
+    # ---------- Unión de períodos y cálculo ponderado ----------
+    df_forecast = pd.merge(sales_last,     sales_previous,  on=['Codigo_Articulo', 'Sucursal'], how='outer')
+    df_forecast = pd.merge(df_forecast,    sales_same_year, on=['Codigo_Articulo', 'Sucursal'], how='outer')
+    for c in ['ventas_last','ventas_previous','ventas_same_year']:
+        df_forecast[c] = pd.to_numeric(df_forecast[c], errors='coerce').fillna(0.0)
 
-    # Pesos absolutos (sin dividir por suma de factores; coherente con su decisión)
+    # Pesos absolutos (sin dividir por suma de factores)
     df_forecast['Forecast'] = (
         df_forecast['ventas_last']     * factor_last +
         df_forecast['ventas_previous'] * factor_previous +
         df_forecast['ventas_same_year']* factor_year
     )
 
-     # ---------- Redondeos y métricas ----------
     prep_elapsed = round(time.time() - start_time, 2)
     print(f"🖼️ Preparación de Datos - Tiempo: {prep_elapsed} seg")
 
-    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0).astype('Int64')
-    df_forecast['Average']  = (df_forecast['Forecast'] / period_length).round(3)
+    # ---------- Redondeo flexible ----------
+    def _round_step_series(serie: pd.Series, decs: int, mode: str):
+        step = 10.0 ** (-decs)   # p.ej., 0.001 para 3 decimales
+        s = pd.to_numeric(serie, errors='coerce')
+        s.loc[~np.isfinite(s)] = 0.0
+        if mode == 'ceil':
+            s = np.ceil(s / step) * step
+        elif mode == 'floor':
+            s = np.floor(s / step) * step
+        else:  # 'round'
+            s = s.round(decs)
+        return s
+
+    # Forecast y Average
+    df_forecast['Forecast'] = pd.to_numeric(df_forecast['Forecast'], errors='coerce')
+    df_forecast.loc[~np.isfinite(df_forecast['Forecast']), 'Forecast'] = 0.0
+
+    if forecast_con_decimales:
+        df_forecast['Forecast'] = _round_step_series(df_forecast['Forecast'], decimales, modo_redondeo).clip(lower=0.0)
+        df_forecast['Average']  = (df_forecast['Forecast'] / period_length).round(decimales) if period_length > 0 else 0.0
+    else:
+        df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0).astype('Int64')
+        df_forecast['Average']  = (df_forecast['Forecast'].astype(float) / period_length).round(decimales) if period_length > 0 else 0.0
 
     # ---------- Metadatos ----------
     df_forecast['id_proveedor']     = id_proveedor
@@ -1356,8 +1415,9 @@ def Calcular_Demanda_ALGO_01(df, id_proveedor, etiqueta, period_length, current_
     df_forecast['Fecha_Pronostico'] = current_date
 
     # ---------- Tipos y orden final ----------
-    df_forecast[['ventas_last', 'ventas_previous', 'ventas_same_year']] = \
-        df_forecast[['ventas_last', 'ventas_previous', 'ventas_same_year']].astype('Int64')
+    # KPIs en float con N decimales (coherentes con pesables)
+    for c in ['ventas_last','ventas_previous','ventas_same_year']:
+        df_forecast[c] = pd.to_numeric(df_forecast[c], errors='coerce').fillna(0.0).round(decimales)
 
     df_forecast = df_forecast[['id_proveedor', 'Codigo_Articulo', 'Sucursal',
                                'algoritmo', 'ventana', 'f1', 'f2', 'f3', 'Fecha_Pronostico',
@@ -1367,7 +1427,6 @@ def Calcular_Demanda_ALGO_01(df, id_proveedor, etiqueta, period_length, current_
     total_elapsed = round(time.time() - start_time, 2)
     print(f"🖼️ Demanda Calculada - Tiempo: {total_elapsed} seg")
     return df_forecast
-
 
 ###----------------------------------------------------------------
 # ALGO_02 Doble Exponencial -  Modelo Holt (TENDENCIA)
@@ -1772,109 +1831,171 @@ def Calcular_Demanda_ALGO_04(df, id_proveedor, etiqueta, ventana, current_date, 
 ###----------------------------------------------------------------
 # ALGO_05 Promedio de Venta SIMPLE (PVS) (Metodo Actual que usan los Compradores)
 ###----------------------------------------------------------------
-def Calcular_Demanda_ALGO_05(df, id_proveedor, etiqueta, ventana, current_date):
-    # Lista para almacenar los resultados del pronóstico
+# Cambios mínimos propuestos
+# Añadir tres parámetros opcionales:
+# decimales: int = 3 (cuántos decimales conservar)
+# modo_redondeo: str = 'ceil' ('ceil', 'floor', 'round')
+# forecast_con_decimales: bool = True (si False, conserva el comportamiento previo entero con ceil)
+# No tocar la forma en que se arma df_daily ni la ventana fija; sólo el formateo final de Forecast y de las métricas históricas.
+
+def Calcular_Demanda_ALGO_05(
+    df, 
+    id_proveedor, 
+    etiqueta, 
+    ventana, 
+    current_date,
+    decimales: int = 3,
+    modo_redondeo: str = 'ceil',           # 'ceil' | 'floor' | 'round'
+    forecast_con_decimales: bool = True    # False = comportamiento entero anterior
+    ):
     resultados = []
 
-    # Corregido 01/09/2024 - Se agrega control de conversion a datetime e indexado
-    # En lugar de ventas_diarias[-30:], se usa reindex(idx_ventana, fill_value=0) con idx_ventana = [current_date - (ventana-1) … current_date].
-    # Consecuencia: si no hubo ventas en los últimos ventana días, la media es exactamente 0 y, por ende, el forecast resulta 0.
-    # El redondeo por ceil se hace después del cálculo real sobre la media (no altera la media almacenada, que sigue siendo informativa).
-
-    # ---- Normalización de tipos ----
+    # --- Normalización de entrada (sin cambios conceptuales) ---
+    df = df.copy()
     if not pd.api.types.is_datetime64_any_dtype(df['Fecha']):
-        df = df.copy()
         df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
     df = df.dropna(subset=['Fecha'])
-    # Asegurar Unidades numérico (NaN -> 0)
-    df['Unidades'] = pd.to_numeric(df['Unidades'], errors='coerce').fillna(0)
 
-    # ---- PREAGREGACIÓN: por día, artículo y sucursal ----
-    # Esto elimina duplicados del tipo: mismo día y SKU–sucursal con distintos precios.
-    df['Fecha'] = df['Fecha'].dt.normalize()  # 00:00:00 del día
+    # Unidades como float (permitimos 3 decimales)
+    df['Unidades'] = pd.to_numeric(df['Unidades'], errors='coerce').fillna(0.0)
+
+    for col in ['Codigo_Articulo', 'Sucursal']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    df = df.dropna(subset=['Codigo_Articulo', 'Sucursal'])
+    df['Codigo_Articulo'] = df['Codigo_Articulo'].round(0).astype('Int64')
+    df['Sucursal']        = df['Sucursal'].round(0).astype('Int64')
+
+    df['Fecha'] = df['Fecha'].dt.normalize()
     df_daily = (df
         .groupby(['Codigo_Articulo', 'Sucursal', 'Fecha'], as_index=False)['Unidades']
         .sum()
     )
 
-    # ---- Ventanas ancladas a current_date ----
+    # --- Ventanas (sin cambios) ---
     last_period_start = current_date - pd.Timedelta(days=ventana - 1)
     last_period_end   = current_date
-
     previous_period_start = current_date - pd.Timedelta(days=2 * ventana - 1)
     previous_period_end   = current_date - pd.Timedelta(days=ventana)
-
     same_period_last_year_start = (current_date - pd.DateOffset(years=1)) - pd.Timedelta(days=ventana - 1)
     same_period_last_year_end   = (current_date - pd.DateOffset(years=1))
 
-    # ---- Agregados para métricas históricas (usando df_daily ya deduplicado) ----
-    m = (df_daily['Fecha'] >= last_period_start) & (df_daily['Fecha'] <= last_period_end)
-    sales_last = (df_daily.loc[m]
-                  .groupby(['Codigo_Articulo', 'Sucursal'])['Unidades']
-                  .sum().reset_index().rename(columns={'Unidades': 'ventas_last'}))
+    # --- Agregados (devuelven float) ---
+    def _sum_in_range(dfi, start, end, out_col):
+        m = (dfi['Fecha'] >= start) & (dfi['Fecha'] <= end)
+        out = (dfi.loc[m]
+               .groupby(['Codigo_Articulo', 'Sucursal'])['Unidades']
+               .sum()
+               .reset_index()
+               .rename(columns={'Unidades': out_col}))
+        out[out_col] = pd.to_numeric(out[out_col], errors='coerce').fillna(0.0)
+        return out
 
-    m = (df_daily['Fecha'] >= previous_period_start) & (df_daily['Fecha'] <= previous_period_end)
-    sales_previous = (df_daily.loc[m]
-                      .groupby(['Codigo_Articulo', 'Sucursal'])['Unidades']
-                      .sum().reset_index().rename(columns={'Unidades': 'ventas_previous'}))
+    sales_last       = _sum_in_range(df_daily, last_period_start,       last_period_end,       'ventas_last')
+    sales_previous   = _sum_in_range(df_daily, previous_period_start,   previous_period_end,   'ventas_previous')
+    sales_same_year  = _sum_in_range(df_daily, same_period_last_year_start, same_period_last_year_end, 'ventas_same_year')
 
-    m = (df_daily['Fecha'] >= same_period_last_year_start) & (df_daily['Fecha'] <= same_period_last_year_end)
-    sales_same_year = (df_daily.loc[m]
-                       .groupby(['Codigo_Articulo', 'Sucursal'])['Unidades']
-                       .sum().reset_index().rename(columns={'Unidades': 'ventas_same_year'}))
-
-    # ---- Índice de ventana fijo ----
     idx_ventana = pd.date_range(start=last_period_start, end=last_period_end, freq='D')
 
-    # ---- Cálculo por SKU–Sucursal sobre df_daily (sin duplicados) ----
+    # --- Cálculo por SKU–Sucursal ---
     for (codigo, sucursal), grupo in df_daily.groupby(['Codigo_Articulo', 'Sucursal']):
-        # Serie diaria única (Fecha -> Unidades)
         s = grupo.set_index('Fecha')['Unidades'].sort_index()
+        ventas_recientes = s.reindex(idx_ventana, fill_value=0.0)
 
-        # Ventana fija anclada a current_date (sin errores por duplicados)
-        ventas_recientes = s.reindex(idx_ventana, fill_value=0)
-
-        media_diaria = float(ventas_recientes.mean())   # 0 si no hubo ventas en la ventana
-        pronostico = media_diaria * ventana
+        media_diaria = float(ventas_recientes.mean())      # float, permite 3 decimales
+        pronostico   = media_diaria * ventana              # float
 
         resultados.append({
             'Codigo_Articulo': codigo,
             'Sucursal': sucursal,
-            'Average': round(media_diaria, 6),
-            'Forecast': pronostico
+            'Average': media_diaria,   # se redondea al final
+            'Forecast': pronostico     # se redondea y/o entera al final
         })
 
-    # ---- DataFrame resultado ----
+    # Esquema vacío si no hubo datos
+    if not resultados:
+        cols = ['id_proveedor','Codigo_Articulo','Sucursal','algoritmo','ventana',
+                'f1','f2','f3','Fecha_Pronostico','Forecast','Average',
+                'ventas_last','ventas_previous','ventas_same_year']
+        return pd.DataFrame(columns=cols)
+
     df_forecast = pd.DataFrame(resultados)
-    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0).astype('Int64')
+
+    # --- Redondeo flexible ---
+    def _round_step_series(serie, decs: int, mode: str):
+        # Paso (p.ej., 0.001 para 3 decimales)
+        step = 10.0 ** (-decs)
+        s = pd.to_numeric(serie, errors='coerce')
+
+        if mode == 'ceil':
+            s = np.ceil(s / step) * step
+        elif mode == 'floor':
+            s = np.floor(s / step) * step
+        else:  # 'round'
+            # round a N decimales; evita problemas binarios comunes
+            s = s.round(decs)
+        return s
+
+    # Average como float con N decimales (informativo)
+    df_forecast['Average'] = pd.to_numeric(df_forecast['Average'], errors='coerce').fillna(0.0)
+    df_forecast['Average'] = _round_step_series(df_forecast['Average'], decimales, 'round')
+
+    # Forecast: decimales o entero según bandera
+    df_forecast['Forecast'] = pd.to_numeric(df_forecast['Forecast'], errors='coerce')
+    df_forecast.loc[~np.isfinite(df_forecast['Forecast']), 'Forecast'] = 0.0
+    if forecast_con_decimales:
+        df_forecast['Forecast'] = _round_step_series(df_forecast['Forecast'], decimales, modo_redondeo).clip(lower=0.0)
+        # Mantener float (p.ej., 12.345)
+    else:
+        # Comportamiento anterior: entero por ceil
+        df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0).astype('Int64')
 
     # Metadatos
     df_forecast['id_proveedor'] = id_proveedor
-    df_forecast['ventana'] = ventana
+    df_forecast['ventana'] = int(ventana)
     df_forecast['algoritmo'] = 'ALGO_05'
     df_forecast['f1'] = 'na'
     df_forecast['f2'] = 'na'
     df_forecast['f3'] = 'na'
-    df_forecast['Fecha_Pronostico'] = current_date
+    df_forecast['Fecha_Pronostico'] = pd.to_datetime(current_date)
 
-    # Joins de métricas históricas
-    df_forecast = pd.merge(df_forecast, sales_last,     on=['Codigo_Articulo', 'Sucursal'], how='left')
-    df_forecast = pd.merge(df_forecast, sales_previous, on=['Codigo_Articulo', 'Sucursal'], how='left')
-    df_forecast = pd.merge(df_forecast, sales_same_year,on=['Codigo_Articulo', 'Sucursal'], how='left')
-    df_forecast[['ventas_last','ventas_previous','ventas_same_year']] = \
-        df_forecast[['ventas_last','ventas_previous','ventas_same_year']].fillna(0).astype('Int64')
+    # Joins
+    for col in ['Codigo_Articulo', 'Sucursal']:
+        df_forecast[col] = pd.to_numeric(df_forecast[col], errors='coerce').astype('Int64')
+
+    df_forecast = pd.merge(df_forecast, sales_last,      on=['Codigo_Articulo','Sucursal'], how='left')
+    df_forecast = pd.merge(df_forecast, sales_previous,  on=['Codigo_Articulo','Sucursal'], how='left')
+    df_forecast = pd.merge(df_forecast, sales_same_year, on=['Codigo_Articulo','Sucursal'], how='left')
+
+    # Las ventas históricas quedan como float con N decimales
+    for col in ['ventas_last','ventas_previous','ventas_same_year']:
+        df_forecast[col] = pd.to_numeric(df_forecast[col], errors='coerce').fillna(0.0).round(decimales)
 
     # Reorden final
-    df_forecast = df_forecast[['id_proveedor', 'Codigo_Articulo', 'Sucursal',
-                               'algoritmo', 'ventana', 'f1', 'f2', 'f3', 'Fecha_Pronostico',
-                               'Forecast', 'Average',
-                               'ventas_last', 'ventas_previous', 'ventas_same_year']]
+    df_forecast = df_forecast[['id_proveedor','Codigo_Articulo','Sucursal',
+                               'algoritmo','ventana','f1','f2','f3','Fecha_Pronostico',
+                               'Forecast','Average',
+                               'ventas_last','ventas_previous','ventas_same_year']]
     return df_forecast
+
 
 ###----------------------------------------------------------------
 # ALGO_06 Demanda Agrupada Semanal -  Modelo Holt (TENDENCIA)
 ###----------------------------------------------------------------
-def Calcular_Demanda_ALGO_06(df, id_proveedor, etiqueta, ventana, current_date):
+import numpy as np
+import pandas as pd
+from statsmodels.tsa.holtwinters import Holt
+
+def Calcular_Demanda_ALGO_06(
+    df,
+    id_proveedor,
+    etiqueta,
+    ventana,
+    current_date,
+    decimales: int = 3,              # precisión para pesables (p.ej., 3)
+    modo_redondeo: str = 'ceil',     # 'ceil' | 'floor' | 'round'  (aplica a Forecast cuando es decimal)
+    forecast_con_decimales: bool = True  # True = Forecast con decimales (pesables); False = entero (compat)
+    ):
     print('Dentro del Calcular_Demanda_ALGO_06')
     print(f'FORECAST Holt control: {id_proveedor} - {etiqueta} - ventana: {ventana}')
 
@@ -1886,16 +2007,29 @@ def Calcular_Demanda_ALGO_06(df, id_proveedor, etiqueta, ventana, current_date):
             raise ValueError("La ventana debe ser al menos 28 días (4 semanas) para calcular el forecast.")
     except Exception as e:
         print(f"Error: ventana inválida ({e}).")
-        return pd.DataFrame()
+        # Esquema vacío coherente con downstream
+        cols = ['id_proveedor','Codigo_Articulo','Sucursal','algoritmo','ventana','f1','f2','f3',
+                'Fecha_Pronostico','Forecast','Average','ventas_last','ventas_previous','ventas_same_year']
+        return pd.DataFrame(columns=cols)
 
     resultados = []
 
     # ---------- Normalización de tipos ----------
+    df = df.copy()
     if not pd.api.types.is_datetime64_any_dtype(df['Fecha']):
-        df = df.copy()
         df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
     df = df.dropna(subset=['Fecha'])
-    df['Unidades'] = pd.to_numeric(df['Unidades'], errors='coerce').fillna(0)
+
+    # Unidades como float (pesables con decimales)
+    df['Unidades'] = pd.to_numeric(df['Unidades'], errors='coerce').fillna(0.0)
+
+    # Llaves como numérico -> enteros anulables
+    for col in ['Codigo_Articulo', 'Sucursal']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    df = df.dropna(subset=['Codigo_Articulo', 'Sucursal'])
+    df['Codigo_Articulo'] = df['Codigo_Articulo'].round(0).astype('Int64')
+    df['Sucursal']        = df['Sucursal'].round(0).astype('Int64')
 
     # ---------- Pre-agregación diaria (elimina duplicados por día) ----------
     df['Fecha'] = df['Fecha'].dt.normalize()  # 00:00:00 del día
@@ -1915,33 +2049,31 @@ def Calcular_Demanda_ALGO_06(df, id_proveedor, etiqueta, ventana, current_date):
     same_period_last_year_end   = (current_date - pd.DateOffset(years=1))
 
     # ---------- KPIs de ventas (sobre df_daily ya deduplicado) ----------
-    m = (df_daily['Fecha'] >= last_period_start) & (df_daily['Fecha'] <= last_period_end)
-    sales_last = (df_daily.loc[m]
-                  .groupby(['Codigo_Articulo', 'Sucursal'])['Unidades']
-                  .sum().reset_index().rename(columns={'Unidades': 'ventas_last'}))
+    def _sum_in_range(dfi, start, end, out_col):
+        m = (dfi['Fecha'] >= start) & (dfi['Fecha'] <= end)
+        out = (dfi.loc[m]
+               .groupby(['Codigo_Articulo', 'Sucursal'])['Unidades']
+               .sum()
+               .reset_index()
+               .rename(columns={'Unidades': out_col}))
+        out[out_col] = pd.to_numeric(out[out_col], errors='coerce').fillna(0.0)
+        return out
 
-    m = (df_daily['Fecha'] >= previous_period_start) & (df_daily['Fecha'] <= previous_period_end)
-    sales_previous = (df_daily.loc[m]
-                      .groupby(['Codigo_Articulo', 'Sucursal'])['Unidades']
-                      .sum().reset_index().rename(columns={'Unidades': 'ventas_previous'}))
-
-    m = (df_daily['Fecha'] >= same_period_last_year_start) & (df_daily['Fecha'] <= same_period_last_year_end)
-    sales_same_year = (df_daily.loc[m]
-                       .groupby(['Codigo_Articulo', 'Sucursal'])['Unidades']
-                       .sum().reset_index().rename(columns={'Unidades': 'ventas_same_year'}))
+    sales_last       = _sum_in_range(df_daily, last_period_start,       last_period_end,       'ventas_last')
+    sales_previous   = _sum_in_range(df_daily, previous_period_start,   previous_period_end,   'ventas_previous')
+    sales_same_year  = _sum_in_range(df_daily, same_period_last_year_start, same_period_last_year_end, 'ventas_same_year')
 
     # ---------- Parámetros semanales ----------
-    week_freq = 'W-MON'  # fin de semana el lunes (ajusten a 'W-SUN' si su semana cierra domingo)
-    # cantidad de semanas de entrenamiento (reciente) para el modelo
-    train_weeks = max(8, 3 * forecast_window)
+    week_freq   = 'W-MON'  # cierre lunes; usen 'W-SUN' si cierra domingo
+    train_weeks = max(8, 3 * forecast_window)  # historia reciente para robustez
 
     # ---------- Cálculo por SKU–Sucursal ----------
     for (codigo, sucursal), grupo in df_daily.groupby(['Codigo_Articulo', 'Sucursal']):
         # Serie diaria -> semanal
-        s_daily = grupo.set_index('Fecha')['Unidades'].sort_index()
-        s_weekly = s_daily.resample(week_freq).sum().asfreq(week_freq, fill_value=0)
+        s_daily  = grupo.set_index('Fecha')['Unidades'].sort_index()
+        s_weekly = s_daily.resample(week_freq).sum().asfreq(week_freq, fill_value=0.0)
 
-        # Recortar historia a las últimas 'train_weeks' (mejora robustez y performance)
+        # Recortar historia a las últimas 'train_weeks'
         if len(s_weekly) > train_weeks:
             s_weekly = s_weekly.iloc[-train_weeks:]
 
@@ -1949,11 +2081,9 @@ def Calcular_Demanda_ALGO_06(df, id_proveedor, etiqueta, ventana, current_date):
         if len(s_weekly) < 4:
             continue
         if s_weekly.sum() == 0 or s_weekly.nunique() == 1:
-            # Serie nula o constante -> no hay señal de tendencia
             forecast_total = 0.0
         else:
             try:
-                # Ajuste Holt con tendencia aditiva (fijos; pueden exponerse como hiperparámetros)
                 modelo = Holt(s_weekly, exponential=False, damped_trend=False, initialization_method="estimated")
                 modelo_ajustado = modelo.fit(smoothing_level=0.8, smoothing_slope=0.2, optimized=False)
                 pronostico = modelo_ajustado.forecast(forecast_window)
@@ -1969,98 +2099,194 @@ def Calcular_Demanda_ALGO_06(df, id_proveedor, etiqueta, ventana, current_date):
         })
 
     # ---------- Armado de salida ----------
+    cols = ['id_proveedor','Codigo_Articulo','Sucursal','algoritmo','ventana','f1','f2','f3',
+            'Fecha_Pronostico','Forecast','Average','ventas_last','ventas_previous','ventas_same_year']
+
     df_forecast = pd.DataFrame(resultados)
     if df_forecast.empty:
         print("Advertencia: No se generaron pronósticos debido a falta de datos.")
-        return df_forecast
+        return pd.DataFrame(columns=cols)
 
-    # Forecast entero y Average diario (coherente con ALGO_05)
-    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0).astype('Int64')
-    df_forecast['Average']  = (df_forecast['Forecast'] / ventana).round(3) if ventana > 0 else 0
+    # ---------- Función de redondeo por “paso” ----------
+    def _round_step_series(serie: pd.Series, decs: int, mode: str):
+        step = 10.0 ** (-decs)  # p.ej., 0.001
+        s = pd.to_numeric(serie, errors='coerce')
+        s.loc[~np.isfinite(s)] = 0.0
+        if mode == 'ceil':
+            s = np.ceil(s / step) * step
+        elif mode == 'floor':
+            s = np.floor(s / step) * step
+        else:  # 'round'
+            s = s.round(decs)
+        return s
 
-    # Join de KPIs de ventas
-    df_forecast = pd.merge(df_forecast, sales_last,     on=['Codigo_Articulo', 'Sucursal'], how='left')
-    df_forecast = pd.merge(df_forecast, sales_previous, on=['Codigo_Articulo', 'Sucursal'], how='left')
-    df_forecast = pd.merge(df_forecast, sales_same_year,on=['Codigo_Articulo', 'Sucursal'], how='left')
-    df_forecast[['ventas_last','ventas_previous','ventas_same_year']] = \
-        df_forecast[['ventas_last','ventas_previous','ventas_same_year']].fillna(0).astype('Int64')
+    # ---------- Forecast y Average con soporte de decimales ----------
+    df_forecast['Forecast'] = pd.to_numeric(df_forecast['Forecast'], errors='coerce')
+    df_forecast.loc[~np.isfinite(df_forecast['Forecast']), 'Forecast'] = 0.0
 
-    # Metadatos
+    if forecast_con_decimales:
+        # Forecast con decimales (pesables)
+        df_forecast['Forecast'] = _round_step_series(df_forecast['Forecast'], decimales, modo_redondeo).clip(lower=0.0)
+        # Average diario con la misma precisión
+        df_forecast['Average'] = (df_forecast['Forecast'] / ventana).round(decimales) if ventana > 0 else 0.0
+    else:
+        # Comportamiento anterior: entero (ceil)
+        df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0).astype('Int64')
+        df_forecast['Average']  = (df_forecast['Forecast'].astype(float) / ventana).round(decimales) if ventana > 0 else 0.0
+
+    # ---------- Join de KPIs de ventas ----------
+    # (Aseguran llaves homogéneas)
+    for col in ['Codigo_Articulo', 'Sucursal']:
+        df_forecast[col] = pd.to_numeric(df_forecast[col], errors='coerce').astype('Int64')
+
+    df_forecast = pd.merge(df_forecast, sales_last,      on=['Codigo_Articulo','Sucursal'], how='left')
+    df_forecast = pd.merge(df_forecast, sales_previous,  on=['Codigo_Articulo','Sucursal'], how='left')
+    df_forecast = pd.merge(df_forecast, sales_same_year, on=['Codigo_Articulo','Sucursal'], how='left')
+
+    # KPIs como float con N decimales (compatibles con pesables)
+    for col in ['ventas_last','ventas_previous','ventas_same_year']:
+        df_forecast[col] = pd.to_numeric(df_forecast[col], errors='coerce').fillna(0.0).round(decimales)
+
+    # ---------- Metadatos ----------
     df_forecast['id_proveedor']     = id_proveedor
     df_forecast['ventana']          = ventana
     df_forecast['algoritmo']        = 'ALGO_06'
     df_forecast['f1']               = 'na'
     df_forecast['f2']               = 'na'
     df_forecast['f3']               = 'na'
-    df_forecast['Fecha_Pronostico'] = current_date
+    df_forecast['Fecha_Pronostico'] = pd.to_datetime(current_date)
 
-    # Reorden final
+    # ---------- Reorden final ----------
     df_forecast = df_forecast[['id_proveedor', 'Codigo_Articulo', 'Sucursal',
                                'algoritmo', 'ventana', 'f1', 'f2', 'f3', 'Fecha_Pronostico',
                                'Forecast', 'Average',
                                'ventas_last', 'ventas_previous', 'ventas_same_year']]
     return df_forecast
 
+
 ###----------------------------------------------------------------
 # ALGO_07 Demanda Simple x Factor -  Fecha de Base Movil
 ###----------------------------------------------------------------
+import numpy as np
+import pandas as pd
+import time
 
-def Calcular_Demanda_ALGO_07(df, id_proveedor, etiqueta, periodo, current_date, factor, fecha_base):
+def Calcular_Demanda_ALGO_07(
+    df,
+    id_proveedor,
+    etiqueta,
+    periodo,
+    current_date,
+    factor,
+    fecha_base,
+    decimales: int = 3,               # precisión para SKU pesables (p.ej., 3)
+    modo_redondeo: str = 'ceil',      # 'ceil' | 'floor' | 'round' (aplica cuando se deja Forecast con decimales)
+    forecast_con_decimales: bool = True  # True: Forecast decimal; False: entero (compatibilidad histórica)
+    ):
+    """
+    ALGO_07: Demanda = ventas del período de referencia * factor.
+    - Soporta unidades decimales (artículos pesables).
+    - Forecast opcionalmente decimal o entero (ceil).
+    """
     print('Dentro del Calcular_Demanda_ALGO_07')
-    print(f'FORECAST control: {id_proveedor} - {etiqueta} - ventana: {periodo} - Fecha Actual: {current_date} - factor: {factor}  - Fecha de Base: {fecha_base}')
+    print(f'FORECAST control: {id_proveedor} - {etiqueta} - ventana: {periodo} - '
+          f'Fecha Actual: {current_date} - factor: {factor}  - Fecha de Base: {fecha_base}')
     start_time = time.time()
 
-    # Tipos y normalización
+    # -------------------- Tipos y normalización --------------------
     period_length = int(periodo)
     factor = float(factor)
-    base_date = _to_ba_naive_date(fecha_base)
+    base_date = _to_ba_naive_date(fecha_base)  # se asume helper existente
 
-    # Columna Fecha: convertir a BA naive y a medianoche
+    # Columna Fecha -> BA naive y a medianoche (helper existente)
+    df = df.copy()
     df['Fecha'] = _to_ba_naive_series_dates(df['Fecha'])
     df.dropna(subset=['Fecha'], inplace=True)
 
-    # Asegurar numérico para Unidades (por si vienen strings)
+    # Unidades como float (permiten 3 decimales típicamente en pesables)
     df['Unidades'] = pd.to_numeric(df['Unidades'], errors='coerce').fillna(0.0)
 
-    # Rango inclusivo de 'period_length' días: [base_date, base_date + (period_length-1)]
-    last_period_start = base_date
-    last_period_end = base_date + pd.Timedelta(days=period_length - 1)
+    # Normalizar llaves a enteros anulables (evita 'object' mixto)
+    for col in ['Codigo_Articulo', 'Sucursal']:
+        if col in df.columns:
+            df[col] = pd.to_numeric(df[col], errors='coerce')
+    df.dropna(subset=['Codigo_Articulo', 'Sucursal'], inplace=True)
+    df['Codigo_Articulo'] = df['Codigo_Articulo'].round(0).astype('Int64')
+    df['Sucursal']        = df['Sucursal'].round(0).astype('Int64')
 
-    # Filtrado (solo FECHA, sin timestamp)
+    # -------------------- Ventana de referencia --------------------
+    # Rango inclusivo de 'period_length' días
+    last_period_start = base_date
+    last_period_end   = base_date + pd.Timedelta(days=period_length - 1)
+
+    # Filtrado
     df_last = df[df['Fecha'].between(last_period_start, last_period_end, inclusive='both')]
 
-    # Agregación
+    # -------------------- Agregación --------------------
+    # Ventas del período (float, admiten decimales)
     sales_last = (
         df_last
         .groupby(['Codigo_Articulo', 'Sucursal'], as_index=False)['Unidades']
-        .sum().rename(columns={'Unidades': 'ventas_last'})
+        .sum()
+        .rename(columns={'Unidades': 'ventas_last'})
     )
+    # Asegurar numérico “limpio”
+    sales_last['ventas_last'] = pd.to_numeric(sales_last['ventas_last'], errors='coerce').fillna(0.0)
 
-    # Estructura de salida
-    # Calcular la demanda estimada como el promedio de las ventas del período multiplicado pro el factor
+    # -------------------- Cálculo de pronóstico --------------------
     df_forecast = sales_last.copy()
-    df_forecast['Forecast'] = (df_forecast['ventas_last'] * factor)
-    # Redondear la predicción al entero más cercano  y eliminar los Negativos
-    df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0)  # type: ignore
-    df_forecast['Average'] = (df_forecast['Forecast'] / period_length).round(3)
-    # Agregar las columnas id_proveedor y ventana
-    df_forecast['id_proveedor'] = id_proveedor
-    df_forecast['algoritmo'] = 'ALGO_07'
-    df_forecast['ventana'] = period_length
-    df_forecast['f1'] = factor
-    df_forecast['f2'] = 'na'
-    df_forecast['f3'] = 'na'
-    df_forecast['ventas_previous'] = 0
-    df_forecast['ventas_same_year'] = 0
+    # Demanda = ventas del período * factor
+    df_forecast['Forecast'] = df_forecast['ventas_last'] * factor
+
+    # Utilidad de redondeo por “paso” (p.ej., 0.001 para 3 decimales)
+    def _round_step_series(serie: pd.Series, decs: int, mode: str):
+        step = 10.0 ** (-decs)
+        s = pd.to_numeric(serie, errors='coerce')
+        s.loc[~np.isfinite(s)] = 0.0
+        if mode == 'ceil':
+            s = np.ceil(s / step) * step
+        elif mode == 'floor':
+            s = np.floor(s / step) * step
+        else:  # 'round'
+            s = s.round(decs)
+        return s
+
+    # -------------------- Formateo del Forecast y Average --------------------
+    df_forecast['Forecast'] = pd.to_numeric(df_forecast['Forecast'], errors='coerce')
+    df_forecast.loc[~np.isfinite(df_forecast['Forecast']), 'Forecast'] = 0.0
+
+    if forecast_con_decimales:
+        # Mantener decimales para pesables
+        df_forecast['Forecast'] = _round_step_series(df_forecast['Forecast'], decimales, modo_redondeo).clip(lower=0.0)
+        # Average diario con la misma precisión
+        df_forecast['Average'] = (df_forecast['Forecast'] / period_length).round(decimales) if period_length > 0 else 0.0
+    else:
+        # Comportamiento histórico: entero (ceil)
+        df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0).astype('Int64')
+        df_forecast['Average']  = (df_forecast['Forecast'].astype(float) / period_length).round(decimales) if period_length > 0 else 0.0
+
+    # -------------------- Metadatos y KPIs adicionales --------------------
+    # Si desean mantener estos KPIs en float con decimales (coherente con pesables):
+    df_forecast['ventas_previous']  = 0.0
+    df_forecast['ventas_same_year'] = 0.0
+
+    df_forecast['id_proveedor']     = id_proveedor
+    df_forecast['algoritmo']        = 'ALGO_07'
+    df_forecast['ventana']          = period_length
+    df_forecast['f1']               = factor
+    df_forecast['f2']               = 'na'
+    df_forecast['f3']               = 'na'
     df_forecast['Fecha_Pronostico'] = base_date
 
+    # Reorden final
     df_forecast = df_forecast[['id_proveedor','Codigo_Articulo','Sucursal','algoritmo','ventana',
-                                'f1','f2','f3','Fecha_Pronostico','Forecast','Average',
-                                'ventas_last','ventas_previous','ventas_same_year']]
+                               'f1','f2','f3','Fecha_Pronostico','Forecast','Average',
+                               'ventas_last','ventas_previous','ventas_same_year']]
 
     print(f"🖼️ Preparación de Datos - Tiempo: {round(time.time() - start_time, 2)} seg")
     print(f"🖼️ Demanda Calculada - Tiempo: {round(time.time() - start_time, 2)} seg")
     return df_forecast
+
 
 
 ###----------------------------------------------------------------
