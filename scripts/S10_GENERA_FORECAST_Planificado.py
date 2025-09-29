@@ -1,7 +1,7 @@
 
 # -*- coding: utf-8 -*-
 """
-Nombre del módulo: S10_GENERA_Foregast_Algoritmos.py
+Nombre del módulo: S10_GENERA_Forecast_Algoritmos.py
 
 Descripción:   FUNCIONES OPTIMIZADAS PARA EL PRONÓSTICO DE DEMANDA
 Esta función articula y ejecuta los algoritmos definidos en la pantalla de CONNEXA.
@@ -54,6 +54,8 @@ folder = f"{secrets['BASE_DIR']}/{secrets['FOLDER_DATOS']}"
 
 print(f"Python executable: {sys.executable}")
 print(f"PATH: {os.environ.get('PATH')}")
+print(f"ENV_PATH: {ENV_PATH}")
+print(f"PGP_DB:{secrets['PGP_DB']} - PGP_HOST:{secrets['PGP_HOST']} - PGP_USER:{secrets['PGP_USER']}")
 
 # -------------------------
 # Import del core
