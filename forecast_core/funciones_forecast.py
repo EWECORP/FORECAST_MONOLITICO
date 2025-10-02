@@ -683,10 +683,11 @@ def generar_datos_OLD(id_proveedor, etiqueta, ventana):
         query_articulos = f"""
             SELECT DISTINCT c_sucu_empr, c_articulo, c_proveedor_primario, abastecimiento, cod_cd, habilitado,  
                     cod_comprador AS c_comprador, 
-                    q_factor_compra, full_capacity_pallet, number_of_layers, number_of_boxes_per_layer
+                    q_factor_compra, full_capacity_pallet, number_of_layers, number_of_boxes_per_layer,
+                    m_vende_por_peso
             FROM src.base_productos_vigentes
             WHERE c_proveedor_primario = {id_proveedor}
-               AND habilitado = 1
+                AND habilitado = 1
             ORDER BY c_articulo, c_proveedor_primario;
         """
         articulos = pd.read_sql(query_articulos, conn) # type: ignore
@@ -707,6 +708,7 @@ def generar_datos_OLD(id_proveedor, etiqueta, ventana):
         articulos['FULL_CAPACITY_PALLET'] = articulos['FULL_CAPACITY_PALLET'].astype(int)
         articulos['NUMBER_OF_LAYERS'] = articulos['NUMBER_OF_LAYERS'].astype(int)
         articulos['NUMBER_OF_BOXES_PER_LAYER'] = articulos['NUMBER_OF_BOXES_PER_LAYER'].astype(int)
+        articulos['M_VENDE_POR_PESO'] = articulos['M_VENDE_POR_PESO'].astype(int)
         articulos.to_csv(archivo_articulos, index=False, encoding='utf-8')
         print(f"---> Datos de Artículos guardados")        
         
@@ -1837,25 +1839,68 @@ def Calcular_Demanda_ALGO_04(df, id_proveedor, etiqueta, ventana, current_date, 
 # modo_redondeo: str = 'ceil' ('ceil', 'floor', 'round')
 # forecast_con_decimales: bool = True (si False, conserva el comportamiento previo entero con ceil)
 # No tocar la forma en que se arma df_daily ni la ventana fija; sólo el formateo final de Forecast y de las métricas históricas.
+import numpy as np
+import pandas as pd
+
+# Se asume que existen estas utilidades en su entorno
+# from su_modulo_conexiones import Open_Diarco_Data, Close_Connection
 
 def Calcular_Demanda_ALGO_05(
-    df, 
-    id_proveedor, 
-    etiqueta, 
-    ventana, 
-    current_date,
+    df: pd.DataFrame,
+    id_proveedor: int,
+    etiqueta: str,
+    ventana: int,
+    current_date: pd.Timestamp,
     decimales: int = 3,
-    modo_redondeo: str = 'ceil',           # 'ceil' | 'floor' | 'round'
-    forecast_con_decimales: bool = True    # False = comportamiento entero anterior
-    ):
-    resultados = []
+    modo_redondeo: str = 'ceil',            # 'ceil' | 'floor' | 'round'
+    forecast_con_decimales: bool = True,    # False = comportamiento entero anterior (ceil)
+    # Política para faltantes de stock diarios:
+    #   'asume_disponible' => NaN en disponibilidad NO excluye el día
+    #   'asume_no_servible' => NaN en disponibilidad SÍ excluye el día
+    politica_faltantes_stock: str = 'asume_disponible'
+) -> pd.DataFrame:
+    """
+    ALGO_05 (stock-aware):
+      - Calcula promedio diario sobre días 'servibles' (Stock > 0) en la ventana.
+      - Evita penalizar días con ventas 0 debidas a quiebre de stock.
+      - Mantiene esquema original con decimales/redondeo y agrega metadatos de disponibilidad.
 
-    # --- Normalización de entrada (sin cambios conceptuales) ---
+    Parámetros:
+      df:               DataFrame con columnas ['Fecha','Codigo_Articulo','Sucursal','Unidades'].
+      id_proveedor:     Proveedor para filtrar stock en t710.
+      etiqueta:         Etiqueta informativa (no usada en el cálculo).
+      ventana:          Tamaño de la ventana en días (entero > 0).
+      current_date:     Fecha de referencia (se incluyen días desde current_date - (ventana-1) hasta current_date).
+      decimales:        Cantidad de decimales para Average/Forecast cuando aplica.
+      modo_redondeo:    'ceil'|'floor'|'round' para Forecast con decimales.
+      forecast_con_decimales: True => Forecast float con N decimales; False => entero por ceil.
+      politica_faltantes_stock: 'asume_disponible' | 'asume_no_servible'.
+
+    Retorna:
+      DataFrame con columnas:
+        ['id_proveedor','Codigo_Articulo','Sucursal','algoritmo','ventana','f1','f2','f3',
+         'Fecha_Pronostico','Forecast','Average','ventas_last','ventas_previous','ventas_same_year',
+         'dias_servibles','factor_disponibilidad','motivo']
+    """
+
+    # -------- Validaciones de entrada básicas --------
+    try:
+        ventana = int(ventana)
+        if ventana <= 0:
+            raise ValueError("ventana debe ser > 0.")
+    except Exception as e:
+        print(f"[ALGO_05] Error en ventana: {e}")
+        cols = ['id_proveedor','Codigo_Articulo','Sucursal','algoritmo','ventana',
+                'f1','f2','f3','Fecha_Pronostico','Forecast','Average',
+                'ventas_last','ventas_previous','ventas_same_year',
+                'dias_servibles','factor_disponibilidad','motivo']
+        return pd.DataFrame(columns=cols)
+
+    # -------- Normalización de entrada (ventas) --------
     df = df.copy()
     if not pd.api.types.is_datetime64_any_dtype(df['Fecha']):
         df['Fecha'] = pd.to_datetime(df['Fecha'], errors='coerce')
     df = df.dropna(subset=['Fecha'])
-
     # Unidades como float (permitimos 3 decimales)
     df['Unidades'] = pd.to_numeric(df['Unidades'], errors='coerce').fillna(0.0)
 
@@ -1867,91 +1912,212 @@ def Calcular_Demanda_ALGO_05(
     df['Sucursal']        = df['Sucursal'].round(0).astype('Int64')
 
     df['Fecha'] = df['Fecha'].dt.normalize()
-    df_daily = (df
-        .groupby(['Codigo_Articulo', 'Sucursal', 'Fecha'], as_index=False)['Unidades']
+
+    # Agregamos ventas diarias por SKU–Sucursal
+    df_daily = (
+        df.groupby(['Codigo_Articulo', 'Sucursal', 'Fecha'], as_index=False)['Unidades']
         .sum()
     )
 
-    # --- Ventanas (sin cambios) ---
+    # -------- Ventanas temporales --------
+    current_date = pd.to_datetime(current_date).normalize()
     last_period_start = current_date - pd.Timedelta(days=ventana - 1)
     last_period_end   = current_date
+
     previous_period_start = current_date - pd.Timedelta(days=2 * ventana - 1)
     previous_period_end   = current_date - pd.Timedelta(days=ventana)
+
     same_period_last_year_start = (current_date - pd.DateOffset(years=1)) - pd.Timedelta(days=ventana - 1)
     same_period_last_year_end   = (current_date - pd.DateOffset(years=1))
 
-    # --- Agregados (devuelven float) ---
+    idx_ventana = pd.date_range(start=last_period_start, end=last_period_end, freq='D')
+
+    # -------- Carga de STOCK por Artículo–Sucursal (2 meses hacia atrás hasta inicio mes actual) --------
+    conn = Open_Diarco_Data()
+    try:
+        query_stock = f"""
+            WITH params AS (
+                SELECT
+                    {int(id_proveedor)}::int AS proveedor,
+                    date_trunc('month', CURRENT_DATE)::date AS mes_actual,
+                    (date_trunc('month', CURRENT_DATE)::date - interval '2 months')::date AS desde,
+                    date_trunc('month', CURRENT_DATE)::date AS hasta
+            ),
+            stock_src AS (
+                SELECT s.*
+                FROM src.t710_estadis_stock s
+                JOIN src.t050_articulos a
+                    ON a.c_articulo = s.c_articulo
+                JOIN params p ON TRUE
+                WHERE a.c_proveedor_primario = p.proveedor
+                    AND make_date(s.c_anio::int, s.c_mes::int, 1) >= p.desde
+                    AND make_date(s.c_anio::int, s.c_mes::int, 1) <  p.hasta
+            ),
+            stock_rows AS (
+                SELECT
+                    st.c_articulo,
+                    st.c_sucu_empr AS c_sucursal,
+                    make_date(st.c_anio::int, st.c_mes::int, u.d::int) AS c_fecha,
+                    u.val::numeric AS stock
+                FROM stock_src st
+                CROSS JOIN LATERAL unnest(ARRAY[
+                    st.q_dia1,  st.q_dia2,  st.q_dia3,  st.q_dia4,  st.q_dia5,
+                    st.q_dia6,  st.q_dia7,  st.q_dia8,  st.q_dia9,  st.q_dia10,
+                    st.q_dia11, st.q_dia12, st.q_dia13, st.q_dia14, st.q_dia15,
+                    st.q_dia16, st.q_dia17, st.q_dia18, st.q_dia19, st.q_dia20,
+                    st.q_dia21, st.q_dia22, st.q_dia23, st.q_dia24, st.q_dia25,
+                    st.q_dia26, st.q_dia27, st.q_dia28, st.q_dia29, st.q_dia30,
+                    st.q_dia31
+                ]) WITH ORDINALITY AS u(val, d)
+                WHERE u.d <= EXTRACT(
+                        DAY FROM (date_trunc('month', make_date(st.c_anio::int, st.c_mes::int, 1))
+                                + interval '1 month - 1 day'))
+            )
+            SELECT c_articulo, c_sucursal, c_fecha, stock
+            FROM stock_rows
+            ORDER BY c_articulo, c_sucursal, c_fecha;
+        """
+        df_stock = pd.read_sql(query_stock, conn)  # type: ignore
+    finally:
+        Close_Connection(conn)
+
+    # Normalización de DF de stock
+    if df_stock is None or df_stock.empty:
+        # Sin datos de stock => seguiremos política 'asume_disponible' para todo
+        df_stock = pd.DataFrame(columns=['Codigo_Articulo','Sucursal','Fecha','Stock'])
+    else:
+        df_stock = df_stock.rename(columns={
+            'c_articulo': 'Codigo_Articulo',
+            'c_sucursal': 'Sucursal',     # unifica nombre (antes algunos usan c_sucu_empr)
+            'c_fecha': 'Fecha',
+            'stock': 'Stock'
+        })
+        df_stock['Codigo_Articulo'] = pd.to_numeric(df_stock['Codigo_Articulo'], errors='coerce').astype('Int64')
+        df_stock['Sucursal']        = pd.to_numeric(df_stock['Sucursal'], errors='coerce').astype('Int64')
+        df_stock['Fecha']           = pd.to_datetime(df_stock['Fecha'], errors='coerce')
+        df_stock['Stock']           = pd.to_numeric(df_stock['Stock'], errors='coerce').fillna(0.0)
+
+        # Evitar usar "hoy" (inventario intradía en movimiento)
+        ayer = current_date - pd.Timedelta(days=1)
+        df_stock = df_stock[df_stock['Fecha'] <= ayer].copy()
+
+    # Mapa de disponibilidad en ventana (True si Stock > 0)
+    if not df_stock.empty:
+        df_stock_avail = (
+            df_stock.loc[df_stock['Fecha'].between(last_period_start, last_period_end)]
+                    .assign(Disponible=lambda d: d['Stock'] > 0)
+                    .loc[:, ['Codigo_Articulo','Sucursal','Fecha','Disponible']]
+        )
+    else:
+        df_stock_avail = pd.DataFrame(columns=['Codigo_Articulo','Sucursal','Fecha','Disponible'])
+
+    # -------- Agregados de ventas para métricas históricas (float) --------
     def _sum_in_range(dfi, start, end, out_col):
         m = (dfi['Fecha'] >= start) & (dfi['Fecha'] <= end)
         out = (dfi.loc[m]
-               .groupby(['Codigo_Articulo', 'Sucursal'])['Unidades']
-               .sum()
-               .reset_index()
-               .rename(columns={'Unidades': out_col}))
+                .groupby(['Codigo_Articulo', 'Sucursal'])['Unidades']
+                .sum()
+                .reset_index()
+                .rename(columns={'Unidades': out_col}))
         out[out_col] = pd.to_numeric(out[out_col], errors='coerce').fillna(0.0)
         return out
 
-    sales_last       = _sum_in_range(df_daily, last_period_start,       last_period_end,       'ventas_last')
-    sales_previous   = _sum_in_range(df_daily, previous_period_start,   previous_period_end,   'ventas_previous')
+    sales_last       = _sum_in_range(df_daily, last_period_start,         last_period_end,         'ventas_last')
+    sales_previous   = _sum_in_range(df_daily, previous_period_start,     previous_period_end,     'ventas_previous')
     sales_same_year  = _sum_in_range(df_daily, same_period_last_year_start, same_period_last_year_end, 'ventas_same_year')
 
-    idx_ventana = pd.date_range(start=last_period_start, end=last_period_end, freq='D')
+    # -------- Cálculo stock-aware por SKU–Sucursal --------
+    resultados = []
+    if not df_stock_avail.empty:
+        df_stock_groups = dict(tuple(df_stock_avail.groupby(['Codigo_Articulo','Sucursal'])))
+    else:
+        df_stock_groups = {}
 
-    # --- Cálculo por SKU–Sucursal ---
     for (codigo, sucursal), grupo in df_daily.groupby(['Codigo_Articulo', 'Sucursal']):
-        s = grupo.set_index('Fecha')['Unidades'].sort_index()
-        ventas_recientes = s.reindex(idx_ventana, fill_value=0.0)
+        # Serie de ventas diarias en ventana (completa, rellena faltantes en 0)
+        s_ventas = (grupo.set_index('Fecha')['Unidades']
+                         .sort_index()
+                         .reindex(idx_ventana, fill_value=0.0))
 
-        media_diaria = float(ventas_recientes.mean())      # float, permite 3 decimales
-        pronostico   = media_diaria * ventana              # float
+        # Máscara de días servibles (Stock > 0)
+        key = (codigo, sucursal)
+        if key in df_stock_groups:
+            disp = (df_stock_groups[key]
+                       .set_index('Fecha')
+                       .reindex(idx_ventana))  # alinea con la ventana
+            mask_servible = disp['Disponible']
+            if politica_faltantes_stock == 'asume_disponible':
+                mask_servible = mask_servible.fillna(True)
+            else:
+                mask_servible = mask_servible.fillna(False)
+        else:
+            # Sin información de stock: seguimos política global
+            if politica_faltantes_stock == 'asume_disponible':
+                mask_servible = pd.Series(True, index=idx_ventana)
+            else:
+                mask_servible = pd.Series(False, index=idx_ventana)
+
+        ventas_servibles = s_ventas[mask_servible]
+        dias_servibles = int(mask_servible.sum())
+
+        if dias_servibles > 0:
+            media_diaria = float(ventas_servibles.sum() / dias_servibles)
+            pronostico   = media_diaria * float(ventana)
+            motivo = 'ok'
+        else:
+            # Sin días servibles: por diseño simple del ALGO_05, pronóstico = 0.
+            media_diaria = 0.0
+            pronostico   = 0.0
+            motivo = 'sin_stock_toda_la_ventana'
 
         resultados.append({
             'Codigo_Articulo': codigo,
             'Sucursal': sucursal,
-            'Average': media_diaria,   # se redondea al final
-            'Forecast': pronostico     # se redondea y/o entera al final
+            'Average': media_diaria,
+            'Forecast': pronostico,
+            'dias_servibles': dias_servibles,
+            'factor_disponibilidad': (dias_servibles / float(ventana)) if ventana else 0.0,
+            'motivo': motivo
         })
 
-    # Esquema vacío si no hubo datos
+    # -------- Esquema vacío si no hubo datos --------
     if not resultados:
         cols = ['id_proveedor','Codigo_Articulo','Sucursal','algoritmo','ventana',
                 'f1','f2','f3','Fecha_Pronostico','Forecast','Average',
-                'ventas_last','ventas_previous','ventas_same_year']
+                'ventas_last','ventas_previous','ventas_same_year',
+                'dias_servibles','factor_disponibilidad','motivo']
         return pd.DataFrame(columns=cols)
 
     df_forecast = pd.DataFrame(resultados)
 
-    # --- Redondeo flexible ---
-    def _round_step_series(serie, decs: int, mode: str):
-        # Paso (p.ej., 0.001 para 3 decimales)
+    # -------- Redondeo flexible --------
+    def _round_step_series(serie: pd.Series, decs: int, mode: str) -> pd.Series:
         step = 10.0 ** (-decs)
         s = pd.to_numeric(serie, errors='coerce')
-
         if mode == 'ceil':
             s = np.ceil(s / step) * step
         elif mode == 'floor':
             s = np.floor(s / step) * step
         else:  # 'round'
-            # round a N decimales; evita problemas binarios comunes
             s = s.round(decs)
         return s
 
-    # Average como float con N decimales (informativo)
+    # Average informativo (float con N decimales)
     df_forecast['Average'] = pd.to_numeric(df_forecast['Average'], errors='coerce').fillna(0.0)
     df_forecast['Average'] = _round_step_series(df_forecast['Average'], decimales, 'round')
 
     # Forecast: decimales o entero según bandera
     df_forecast['Forecast'] = pd.to_numeric(df_forecast['Forecast'], errors='coerce')
     df_forecast.loc[~np.isfinite(df_forecast['Forecast']), 'Forecast'] = 0.0
+
     if forecast_con_decimales:
         df_forecast['Forecast'] = _round_step_series(df_forecast['Forecast'], decimales, modo_redondeo).clip(lower=0.0)
-        # Mantener float (p.ej., 12.345)
     else:
         # Comportamiento anterior: entero por ceil
         df_forecast['Forecast'] = np.ceil(df_forecast['Forecast']).clip(lower=0).astype('Int64')
 
-    # Metadatos
-    df_forecast['id_proveedor'] = id_proveedor
+    # -------- Metadatos fijos --------
+    df_forecast['id_proveedor'] = int(id_proveedor)
     df_forecast['ventana'] = int(ventana)
     df_forecast['algoritmo'] = 'ALGO_05'
     df_forecast['f1'] = 'na'
@@ -1959,24 +2125,35 @@ def Calcular_Demanda_ALGO_05(
     df_forecast['f3'] = 'na'
     df_forecast['Fecha_Pronostico'] = pd.to_datetime(current_date)
 
-    # Joins
+    # Tipos llave
     for col in ['Codigo_Articulo', 'Sucursal']:
         df_forecast[col] = pd.to_numeric(df_forecast[col], errors='coerce').astype('Int64')
 
+    # -------- Joins con ventas históricas --------
     df_forecast = pd.merge(df_forecast, sales_last,      on=['Codigo_Articulo','Sucursal'], how='left')
     df_forecast = pd.merge(df_forecast, sales_previous,  on=['Codigo_Articulo','Sucursal'], how='left')
     df_forecast = pd.merge(df_forecast, sales_same_year, on=['Codigo_Articulo','Sucursal'], how='left')
 
-    # Las ventas históricas quedan como float con N decimales
     for col in ['ventas_last','ventas_previous','ventas_same_year']:
         df_forecast[col] = pd.to_numeric(df_forecast[col], errors='coerce').fillna(0.0).round(decimales)
 
-    # Reorden final
-    df_forecast = df_forecast[['id_proveedor','Codigo_Articulo','Sucursal',
-                               'algoritmo','ventana','f1','f2','f3','Fecha_Pronostico',
-                               'Forecast','Average',
-                               'ventas_last','ventas_previous','ventas_same_year']]
+    # Metadatos de disponibilidad
+    df_forecast['dias_servibles'] = pd.to_numeric(df_forecast['dias_servibles'], errors='coerce').fillna(0).astype(int)
+    df_forecast['factor_disponibilidad'] = pd.to_numeric(df_forecast['factor_disponibilidad'], errors='coerce').fillna(0.0).round(3)
+    if 'motivo' not in df_forecast.columns:
+        df_forecast['motivo'] = 'ok'
+
+    # -------- Orden final --------
+    df_forecast = df_forecast[[
+        'id_proveedor','Codigo_Articulo','Sucursal',
+        'algoritmo','ventana','f1','f2','f3','Fecha_Pronostico',
+        'Forecast','Average',
+        'ventas_last','ventas_previous','ventas_same_year',
+        'dias_servibles','factor_disponibilidad','motivo'
+    ]]
+
     return df_forecast
+
 
 
 ###----------------------------------------------------------------
@@ -2403,50 +2580,112 @@ def Procesar_ALGO_06(data, articulos, proveedor, etiqueta, ventana, fecha):
     return
     
 def Procesar_ALGO_05(data, articulos, proveedor, etiqueta, ventana, fecha):
-    
-        # Determinar la fecha base
+    # 1) Determinar fecha base
     if fecha is None:
-        fecha = data['Fecha'].max()  # Se toma la última fecha en los datos
+        fecha = pd.to_datetime(data['Fecha'].max())
     else:
-        fecha = pd.to_datetime(fecha)  # Se asegura que sea un objeto datetime
-        
-    print(f'--> Procesar_ALGO_05 ventana {ventana} - fecha {fecha} - No usa Factores')
-        
-    df_forecast = Calcular_Demanda_ALGO_05(data, proveedor, etiqueta, ventana, fecha)    # Exportar el resultado a un CSV para su posterior procesamiento
-    df_forecast['Codigo_Articulo']= df_forecast['Codigo_Articulo'].astype(int)
-    df_forecast['Sucursal']= df_forecast['Sucursal'].astype(int)
-        
-    # Extraer el surtido de artículos y sucursales
-    surtido = articulos[['C_ARTICULO', 'C_SUCU_EMPR','C_PROVEEDOR_PRIMARIO']]
-    surtido = surtido.rename(columns={'C_ARTICULO': 'Codigo_Articulo', 'C_SUCU_EMPR': 'Sucursal', 'C_PROVEEDOR_PRIMARIO': 'id_proveedor'})
-    surtido['Codigo_Articulo']= surtido['Codigo_Articulo'].astype(int)
-    surtido['Sucursal']= surtido['Sucursal'].astype(int)
-    surtido['id_proveedor']= surtido['id_proveedor'].astype(int)
-    
-    df_final = pd.merge(surtido, df_forecast, on=['Codigo_Articulo', 'Sucursal'], how='left')  # Asegurar que todos los artículos del surtido estén presentes
-     
-    df_final = df_final.fillna(0)  # Rellenar NaN con 0 para evitar problemas en el CSV
-    df_final['algoritmo'] = df_final['algoritmo'].replace('', pd.NA)
-    df_final['algoritmo'] = df_final['algoritmo'].fillna('ALGO_05')
-    df_final['f1'] = df_final['f1'].replace('', pd.NA)
-    df_final['f1'] = df_final['f1'].fillna(0)
-    df_final['f2'] = df_final['f2'].replace('', pd.NA)
-    df_final['f2'] = df_final['f2'].fillna(0)
-    df_final['f3'] = df_final['f3'].replace('', pd.NA)
-    df_final['f3'] = df_final['f3'].fillna(0)
-    # Eliminar la columna duplicada
-    df_final.drop(columns=['id_proveedor_y'], inplace=True)
-    df_final.rename(columns={'id_proveedor_x': 'id_proveedor'}, inplace=True)
-    # Eliminar duplicados considerando la clave compuesta
+        fecha = pd.to_datetime(fecha)
+
+    print(f'--> Procesar_ALGO_05 ventana {ventana} - fecha {fecha.date()} - No usa Factores')
+
+    # 2) Calcular forecast (ALGO_05 stock-aware)
+    df_forecast = Calcular_Demanda_ALGO_05(
+        df=data,
+        id_proveedor=proveedor,
+        etiqueta=etiqueta,
+        ventana=int(ventana),
+        current_date=fecha
+        # Se pueden pasar banderas opcionales:
+        # decimales=3, modo_redondeo='ceil', forecast_con_decimales=True,
+        # politica_faltantes_stock='asume_disponible'
+    )
+
+    # Asegurar tipos clave (tolerante a vacío)
+    for col in ['Codigo_Articulo', 'Sucursal']:
+        if col in df_forecast.columns:
+            df_forecast[col] = pd.to_numeric(df_forecast[col], errors='coerce').astype('Int64')
+
+    # 3) Surtido base (todos los Artículo–Sucursal del proveedor)
+    surtido = articulos[['C_ARTICULO', 'C_SUCU_EMPR', 'C_PROVEEDOR_PRIMARIO']].copy()
+    surtido = surtido.rename(columns={
+        'C_ARTICULO': 'Codigo_Articulo',
+        'C_SUCU_EMPR': 'Sucursal',
+        'C_PROVEEDOR_PRIMARIO': 'id_proveedor'
+    })
+    for col in ['Codigo_Articulo', 'Sucursal', 'id_proveedor']:
+        surtido[col] = pd.to_numeric(surtido[col], errors='coerce').astype('Int64')
+
+    # 4) Merge (left) para garantizar cobertura del surtido
+    df_final = pd.merge(
+        surtido, df_forecast,
+        on=['Codigo_Articulo', 'Sucursal'],
+        how='left',
+        suffixes=('_x', '_y')  # por si aparece id_proveedor en ambos
+    )
+
+    # Resolver columnas id_proveedor_x / id_proveedor_y (dejamos la del surtido)
+    if 'id_proveedor_y' in df_final.columns:
+        df_final.drop(columns=['id_proveedor_y'], inplace=True, errors='ignore')
+    if 'id_proveedor_x' in df_final.columns:
+        df_final.rename(columns={'id_proveedor_x': 'id_proveedor'}, inplace=True)
+
+    # 5) Rellenos: SOLO numéricos a 0; texto/fecha quedan en NaN para no perder semántica
+    # Identificar columnas numéricas
+    numeric_cols = []
+    for c in df_final.columns:
+        if pd.api.types.is_numeric_dtype(df_final[c]):
+            numeric_cols.append(c)
+
+    # Completar numéricos con 0
+    if numeric_cols:
+        df_final[numeric_cols] = df_final[numeric_cols].fillna(0)
+
+    # Completar columnas esperables pero ausentes (si el merge vino vacío)
+    for col, val in [
+        ('algoritmo', 'ALGO_05'),
+        ('f1', 0), ('f2', 0), ('f3', 0),
+        ('Fecha_Pronostico', pd.NaT),
+        ('Forecast', 0), ('Average', 0),
+        ('ventas_last', 0), ('ventas_previous', 0), ('ventas_same_year', 0),
+        ('dias_servibles', 0), ('factor_disponibilidad', 0.0),
+        ('motivo', pd.NA)
+    ]:
+        if col not in df_final.columns:
+            df_final[col] = val
+
+    # Asegurar tipos de nuevos campos
+    df_final['dias_servibles'] = pd.to_numeric(df_final['dias_servibles'], errors='coerce').fillna(0).astype(int)
+    df_final['factor_disponibilidad'] = pd.to_numeric(df_final['factor_disponibilidad'], errors='coerce').fillna(0.0)
+
+    # 6) Eliminar duplicados por clave compuesta
     df_final = df_final.drop_duplicates(
         subset=['Codigo_Articulo', 'Sucursal', 'id_proveedor', 'algoritmo'],
-        keep='last'   # conserva el último registro según el orden actual del DataFrame
+        keep='last'
     ).reset_index(drop=True)
 
-    df_final.to_csv(f'{folder}/{etiqueta}_ALGO_05_Solicitudes_Compra.csv', index=False)
-    
-    Exportar_Pronostico(df_final, proveedor, etiqueta, 'ALGO_05')  # Impactar Datos en la Interface   
+    # 7) Orden de columnas (incluye diagnósticos de disponibilidad)
+    columnas_orden = [
+        'id_proveedor', 'Codigo_Articulo', 'Sucursal',
+        'algoritmo', 'ventana', 'f1', 'f2', 'f3', 'Fecha_Pronostico',
+        'Forecast', 'Average',
+        'ventas_last', 'ventas_previous', 'ventas_same_year',
+        'dias_servibles', 'factor_disponibilidad', 'motivo'
+    ]
+    # Agregar cualquier columna faltante para evitar KeyError
+    for c in columnas_orden:
+        if c not in df_final.columns:
+            df_final[c] = pd.NA
+    df_final = df_final[columnas_orden]
+
+    # 8) Exportar CSV y publicar en interfaz
+    # ruta_csv = f'{folder}/{etiqueta}_ALGO_05_Solicitudes_Compra.csv'
+    ruta_csv = os.path.join(folder, f'{etiqueta}_ALGO_05_Solicitudes_Compra.csv')
+    print(f'-> ** Solicitudes Exportadas: {ruta_csv} *** : ventana: {ventana}  - {fecha.date()}')
+    df_final.to_csv(ruta_csv, index=False)
+
+    Exportar_Pronostico(df_final, proveedor, etiqueta, 'ALGO_05')
     return
+
 
 def Procesar_ALGO_04(data, articulos, proveedor, etiqueta, ventana, fecha,  **kwargs):    
     # Asignar valores por defecto si los factores no están definidos
