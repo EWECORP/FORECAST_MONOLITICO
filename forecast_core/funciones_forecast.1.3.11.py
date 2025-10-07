@@ -247,7 +247,6 @@ import os
 import numpy as np
 import pandas as pd
 from datetime import datetime
-import re
 
 # Se asume que existen en el core:
 # - Open_Diarco_Data()
