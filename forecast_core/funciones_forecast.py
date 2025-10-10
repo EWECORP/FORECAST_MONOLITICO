@@ -588,15 +588,49 @@ def generar_datos(
         ventas['codigo_articulo'] = pd.to_numeric(ventas['codigo_articulo'], errors='coerce').astype('Int64')
         ventas['fecha'] = pd.to_datetime(ventas['fecha'], errors='coerce')
         ventas = ventas.dropna(subset=['fecha', 'codigo_articulo', 'sucursal'], how='any')
-    ventas = ventas.rename(columns={
+        ventas = ventas.rename(columns={
         "fecha": "Fecha",
         "codigo_articulo": "Codigo_Articulo",
         "sucursal": "Sucursal",
         "unidades": "Unidades"
-    })
+        })
     # Guardar sólo VENTAS (compacto demanda)
     ventas.to_csv(f"{folder}/{etiqueta}_Demanda.csv", index=False, encoding='utf-8')
     print(f"---> Datos de Ventas guardados")
+
+    # ------------------ NUEVO MODELO DE VENTAS EXTENDIDO  ------------------
+    # Se filtra por proveedor a través del join con base_productos_vigentes (misma lógica que arriba);
+    # los filtros de sucursal/rubro se consolidan en el merge final contra 'articulos' ya filtrados.
+    query_ventas = f"""
+        SELECT fecha, codigo_articulo, sucursal,  unidades, precio,  con_stock, venta_especial, promo_normal, promo_fuerte, 
+                factor_precio,  c_proveedor_primario, clasificacion 
+        FROM src.base_ventas_extendida
+        WHERE c_proveedor_primario = {int(id_proveedor)}
+            AND fecha >= '2024-06-01'
+        ORDER BY fecha, codigo_articulo, sucursal;
+    """
+    ventas_new = pd.read_sql(query_ventas, conn)  # type: ignore
+    if ventas_new.empty:
+        print(f"⚠️ No se encontraron ventas EXTENDIDAS para el proveedor {id_proveedor}.")
+        ventas_new = pd.DataFrame(columns=['Fecha', 'Codigo_Articulo', 'Sucursal', 'Unidades'])
+
+    # Tipos y limpieza
+    if not ventas_new.empty:
+        ventas_new.columns = ventas_new.columns.str.lower()
+        ventas_new['sucursal'] = pd.to_numeric(ventas_new['sucursal'], errors='coerce').astype('Int64')
+        ventas_new['codigo_articulo'] = pd.to_numeric(ventas_new['codigo_articulo'], errors='coerce').astype('Int64')
+        ventas_new['fecha'] = pd.to_datetime(ventas_new['fecha'], errors='coerce')
+        ventas_new = ventas_new.dropna(subset=['fecha', 'codigo_articulo', 'sucursal'], how='any')
+        ventas_new = ventas_new.rename(columns={
+        "fecha": "Fecha",
+        "codigo_articulo": "Codigo_Articulo",
+        "sucursal": "Sucursal",
+        "unidades": "Unidades"
+        })
+    # Guardar sólo VENTAS (compacto demanda)
+    ventas_new.to_csv(f"{folder}/{etiqueta}_Demanda_Extendida.csv", index=False, encoding='utf-8')
+    print(f"---> Datos de Ventas Extendidas guardados")
+
 
     # ------------------ MERGE FINAL (artículos filtrados ⟵ ventas) ------------------
     data = pd.merge(
@@ -1845,6 +1879,7 @@ import pandas as pd
 
 # Se asume que existen estas utilidades en su entorno
 # from su_modulo_conexiones import Open_Diarco_Data, Close_Connection
+# 119 = CLASIFICACIÓN COMPRAS (1-Sensibles, 2-Resto Top, 3-Variedas Extra, 4-a remover, 5-Sin venta, 6-Sensible PM)
 
 def Calcular_Demanda_ALGO_05(
     df: pd.DataFrame,
