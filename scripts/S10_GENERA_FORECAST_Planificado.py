@@ -420,9 +420,9 @@ def get_forecast(
 
     # 5) Fecha base
     if current_date is None:
-        current_date = data["Fecha"].max() if data is not None and not data.empty else pd.Timestamp.today()
+        current_date = data["Fecha"].max() if data is not None and not data.empty else pd.Timestamp.today() # type: ignore
     else:
-        current_date = pd.to_datetime(current_date)
+        current_date = pd.to_datetime(current_date)   # pyright: ignore[reportAssignmentType]
     print(f"Fecha actual {current_date}")
 
     # 6) Selección del algoritmo
