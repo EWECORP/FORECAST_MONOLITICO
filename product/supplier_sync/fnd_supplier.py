@@ -8,7 +8,7 @@ class SupplierFunc:
         # Consulta para obtener datos desde la base de datos origen
         self.query_origen = """
             SELECT c_proveedor, c_cuit, n_proveedor, f_proc
-            FROM public.m_10_proveedores 
+            FROM src.m_10_proveedores 
         """
 
         # Consulta para obtener datos desde la base de datos destino (cargar el dataframe)

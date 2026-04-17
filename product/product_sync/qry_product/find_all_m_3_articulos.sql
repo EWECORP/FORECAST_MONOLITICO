@@ -4,7 +4,7 @@ select 	ma.c_articulo as c_articulo,
 		ean, 
 		f_proc, 
 		concat((select c_rubro_padre 
-		        from t114_rubros tr 
+		        from src.t114_rubros tr 
 				where c_rubro = ma.c_rubro), '-',
 				ma.c_rubro,'-',
 				ma.c_subrubro_1,'-', 
